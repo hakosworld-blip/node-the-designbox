@@ -11,9 +11,12 @@ export type NodeType =
   | "rect"
   | "ellipse"
   | "line"
+  | "arrow"
   | "text"
   | "image"
-  | "polygon";
+  | "polygon"
+  | "group"
+  | "instance";
 
 export interface DesignNode {
   id: string;
@@ -38,8 +41,16 @@ export interface DesignNode {
   rotation?: number; // degrees, clockwise
   shadowBlur?: number; // 0 = off
   shadowColor?: string;
+  blur?: number; // layer blur, 0 = off
   locked?: boolean;
   hidden?: boolean;
+  // Groups: child node ids in paint order (back to front).
+  children?: string[];
+  // Components / instances: every instance points at a component master node.
+  componentId?: string;
+  // Constraints: how a node follows its frame when the frame resizes.
+  constraintH?: "left" | "center" | "right" | "scale";
+  constraintV?: "top" | "center" | "bottom" | "scale";
 }
 
 export interface DesignPage {
@@ -89,18 +100,22 @@ export function defaultNode(type: NodeType, x: number, y: number): DesignNode {
             ? "Text"
             : type === "line"
               ? "Line"
-              : type === "polygon"
-                ? "Polygon"
-                : type === "image"
-                  ? "Image"
-                  : "Frame",
+              : type === "arrow"
+                ? "Arrow"
+                : type === "polygon"
+                  ? "Polygon"
+                  : type === "image"
+                    ? "Image"
+                    : type === "group"
+                      ? "Group"
+                      : "Frame",
     x,
     y,
     w: type === "text" ? 200 : 140,
-    h: type === "line" ? 0 : type === "text" ? 32 : 100,
+    h: type === "line" || type === "arrow" ? 0 : type === "text" ? 32 : 100,
     fill: type === "frame" ? "#1c1c22" : "#8b5cf6",
-    stroke: null,
-    strokeWidth: 0,
+    stroke: type === "arrow" ? "#a1a1aa" : null,
+    strokeWidth: type === "arrow" ? 2 : 0,
     radius: type === "frame" ? 12 : 0,
     opacity: 1,
   };
@@ -124,7 +139,7 @@ export interface Bounds {
 }
 
 export function nodeBounds(n: DesignNode): Bounds {
-  if (n.type === "line") {
+  if (n.type === "line" || n.type === "arrow") {
     return {
       x: Math.min(n.x, n.x + n.w),
       y: Math.min(n.y, n.y + n.h),
@@ -175,9 +190,11 @@ export function hitTest(
   for (let i = page.nodes.length - 1; i >= 0; i--) {
     const n = page.nodes[i];
     if (n.hidden) continue;
+    // Groups are containers: hit-test their children instead.
+    if (n.type === "group") continue;
     const p = pointInLocalSpace(n, px, py);
     const b = nodeBounds(n);
-    const pad = n.type === "line" ? 6 : 0;
+    const pad = n.type === "line" || n.type === "arrow" ? 6 : 0;
     if (
       p.x >= b.x - pad &&
       p.x <= b.x + b.w + pad &&
@@ -188,6 +205,46 @@ export function hitTest(
     }
   }
   return null;
+}
+
+/** The group containing the given node, if any. */
+export function groupOf(page: DesignPage, nodeId: string): DesignNode | null {
+  return (
+    page.nodes.find(
+      (n) => n.type === "group" && (n.children ?? []).includes(nodeId),
+    ) ?? null
+  );
+}
+
+/** Union bounds of a set of nodes (empty → null). */
+export function boundsOfNodes(nodes: DesignNode[]): Bounds | null {
+  return unionBounds(nodes);
+}
+
+/**
+ * Snap candidates for the active page: node edges and centers, page origin.
+ * Used by the editor for smart guides.
+ */
+export interface SnapAxis {
+  value: number; // page-space coordinate
+  kind: "edge" | "center";
+  nodeId: string;
+}
+
+export function snapTargets(page: DesignPage, excludeIds: string[]) {
+  const xs: SnapAxis[] = [{ value: 0, kind: "edge", nodeId: "" }];
+  const ys: SnapAxis[] = [{ value: 0, kind: "edge", nodeId: "" }];
+  for (const n of page.nodes) {
+    if (excludeIds.includes(n.id) || n.hidden || n.type === "group") continue;
+    const b = nodeBounds(n);
+    xs.push({ value: b.x, kind: "edge", nodeId: n.id });
+    xs.push({ value: b.x + b.w, kind: "edge", nodeId: n.id });
+    xs.push({ value: b.x + b.w / 2, kind: "center", nodeId: n.id });
+    ys.push({ value: b.y, kind: "edge", nodeId: n.id });
+    ys.push({ value: b.y + b.h, kind: "edge", nodeId: n.id });
+    ys.push({ value: b.y + b.h / 2, kind: "center", nodeId: n.id });
+  }
+  return { xs, ys };
 }
 
 export interface Transform {

@@ -10,6 +10,9 @@
 import { create } from "zustand";
 import {
   activePage,
+  nodeBounds,
+  uid,
+  unionBounds,
   type DesignDoc,
   type DesignNode,
 } from "./geo";
@@ -21,6 +24,7 @@ export type Tool =
   | "rect"
   | "ellipse"
   | "line"
+  | "arrow"
   | "polygon"
   | "text"
   | "image"
@@ -57,6 +61,10 @@ interface EditorState {
   setPage: (pageId: string) => void;
   renamePage: (pageId: string, name: string) => void;
   deletePage: (pageId: string) => void;
+  groupNodes: (ids: string[]) => void;
+  ungroupNodes: (ids: string[]) => void;
+  createComponent: (ids: string[]) => void;
+  insertComponent: (componentId: string, x: number, y: number) => void;
   setViewport: (zoom: number, panX: number, panY: number) => void;
   undo: () => void;
   redo: () => void;
@@ -129,10 +137,63 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   updateNodesLive: (ids, patch) => {
     const { doc } = get();
+    const page = activePage(doc);
+    const resizingFrames = page.nodes.filter(
+      (n) => ids.includes(n.id) && n.type === "frame" && patch.w !== undefined,
+    );
+
     set({
-      doc: mapNodes(doc, (nodes) =>
-        nodes.map((n) => (ids.includes(n.id) ? { ...n, ...patch } : n)),
-      ),
+      doc: mapNodes(doc, (nodes) => {
+        let next = nodes.map((n) => (ids.includes(n.id) ? { ...n, ...patch } : n));
+
+        // Constraint-follow: children of resized frames shift/scale per their
+        // constraintH/constraintV setting (default: left/top).
+        if (resizingFrames.length > 0) {
+          const before = new Map(
+            page.nodes.map((n) => [n.id, n] as const),
+          );
+          next = next.map((n) => {
+            const parent = before.get(n.id);
+            if (!parent) return n;
+            const frame = resizingFrames.find((f) =>
+              // child is “inside” if its center was inside the old frame bounds
+              n.id !== f.id &&
+              n.x + n.w / 2 > parent.x &&
+              n.x + n.w / 2 < parent.x + parent.w &&
+              n.y + n.h / 2 > parent.y &&
+              n.y + n.h / 2 < parent.y + parent.h,
+            );
+            if (!frame) return n;
+            const oldB = before.get(frame.id);
+            const newB = next.find((x) => x.id === frame.id);
+            if (!oldB || !newB) return n;
+            const dw = newB.w - oldB.w;
+            const dh = newB.h - oldB.h;
+            const h = n.constraintH ?? "left";
+            const v = n.constraintV ?? "top";
+            let x = n.x;
+            let y = n.y;
+            let w = n.w;
+            let hh = n.h;
+            if (h === "right") x = n.x + dw;
+            else if (h === "center") x = n.x + dw / 2;
+            else if (h === "scale" && oldB.w > 0) {
+              const k = newB.w / oldB.w;
+              x = oldB.x + (n.x - oldB.x) * k;
+              w = n.w * k;
+            }
+            if (v === "bottom") y = n.y + dh;
+            else if (v === "center") y = n.y + dh / 2;
+            else if (v === "scale" && oldB.h > 0) {
+              const k = newB.h / oldB.h;
+              y = oldB.y + (n.y - oldB.y) * k;
+              hh = n.h * k;
+            }
+            return { ...n, x, y, w, h: hh };
+          });
+        }
+        return next;
+      }),
       dirty: true,
     });
   },
@@ -255,6 +316,131 @@ export const useEditor = create<EditorState>((set, get) => ({
       future: [],
       dirty: true,
       selectedIds: [],
+    });
+  },
+
+  /** Wrap the given nodes in a group; children stay in the flat node list. */
+  groupNodes: (ids) => {
+    const { doc, past } = get();
+    if (ids.length < 2) return;
+    const page = activePage(doc);
+    const members = page.nodes.filter((n) => ids.includes(n.id));
+    if (members.length < 2) return;
+    const b = unionBounds(members);
+    if (!b) return;
+    const group: DesignNode = {
+      id: uid("g"),
+      type: "group",
+      name: "Group",
+      x: b.x,
+      y: b.y,
+      w: b.w,
+      h: b.h,
+      fill: null,
+      stroke: null,
+      strokeWidth: 0,
+      radius: 0,
+      opacity: 1,
+      children: members.map((m) => m.id),
+    };
+    set({
+      doc: mapNodes(doc, (nodes) => [
+        ...nodes.filter((n) => !ids.includes(n.id)),
+        group,
+      ]),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+      selectedIds: [group.id],
+    });
+  },
+
+  /** Dissolve groups, restoring their children as direct layer entries. */
+  ungroupNodes: (ids) => {
+    const { doc, past } = get();
+    const page = activePage(doc);
+    const groups = page.nodes.filter(
+      (n) => n.type === "group" && ids.includes(n.id),
+    );
+    if (groups.length === 0) return;
+    set({
+      doc: mapNodes(doc, (nodes) => {
+        const freed: DesignNode[] = [];
+        const kept = nodes.filter((n) => {
+          if (n.type === "group" && ids.includes(n.id)) {
+            for (const childId of n.children ?? []) {
+              const child = nodes.find((c) => c.id === childId);
+              if (child) freed.push(child);
+            }
+            return false;
+          }
+          return true;
+        });
+        return [...kept, ...freed];
+      }),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+      selectedIds: groups.flatMap((g) => g.children ?? []),
+    });
+  },
+
+  /** Register the selected nodes as a reusable component (kept on canvas as master). */
+  createComponent: (ids) => {
+    const { doc, past } = get();
+    if (ids.length === 0) return;
+    const page = activePage(doc);
+    const master = page.nodes.find((n) => n.id === ids[0]);
+    if (!master) return;
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) => (n.id === master.id ? { ...n, name: `${n.name} — master` } : n)),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+    // The master node itself is the component definition; record it in the
+    // components list derived from nodes flagged below.
+    useEditor.setState({
+      doc: {
+        ...get().doc,
+        pages: get().doc.pages.map((p) =>
+          p.id !== page.id
+            ? p
+            : {
+                ...p,
+                nodes: p.nodes.map((n) =>
+                  n.id === master.id ? { ...n, componentId: n.id } : n,
+                ),
+              },
+        ),
+      },
+      dirty: true,
+    });
+  },
+
+  /** Place a live instance of a component master onto the canvas. */
+  insertComponent: (componentId, x, y) => {
+    const { doc, past } = get();
+    const page = activePage(doc);
+    const master = page.nodes.find((n) => n.id === componentId);
+    if (!master) return;
+    const inst: DesignNode = {
+      ...JSON.parse(JSON.stringify(master)),
+      id: uid("i"),
+      type: "instance",
+      name: master.name.replace(" — master", "") + " instance",
+      x,
+      y,
+      componentId,
+    };
+    set({
+      doc: mapNodes(doc, (nodes) => [...nodes, inst]),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+      selectedIds: [inst.id],
     });
   },
 

@@ -13,11 +13,13 @@ import {
   nodeBounds,
   pageToScreen,
   screenToPage,
+  snapTargets,
+  unionBounds,
   type Bounds,
   type DesignDoc,
   type DesignNode,
 } from "@/lib/geo";
-import { renderDoc } from "@/lib/render";
+import { renderDoc, type SnapGuide } from "@/lib/render";
 import { buildTemplate } from "@/lib/templates";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,8 @@ import {
   ArrowLeft,
   ArrowDown,
   ArrowUp,
+  ArrowUpRight,
+  Boxes,
   Circle,
   Copy,
   Download,
@@ -63,6 +67,7 @@ import {
   Layers,
   Link2,
   Lock,
+  LogOut,
   MessageCircle,
   Minus,
   MousePointer2,
@@ -71,11 +76,14 @@ import {
   Pentagon,
   Plus,
   Redo2,
+  Ruler,
   Share2,
+  Sparkles,
   Square,
   Trash2,
   Type,
   Undo2,
+  User as UserIcon,
 } from "lucide-react";
 
 /* ---------- Small helpers ---------- */
@@ -85,9 +93,12 @@ const NODE_ICONS: Record<DesignNode["type"], typeof Square> = {
   rect: Square,
   ellipse: Circle,
   line: Minus,
+  arrow: ArrowUpRight,
   text: Type,
   image: ImageIcon,
   polygon: Pentagon,
+  group: Boxes,
+  instance: Sparkles,
 };
 
 function timeAgo(ts: number) {
@@ -190,7 +201,7 @@ const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 export default function Editor() {
   const { fileId } = useParams<{ fileId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
 
   const fileRow = useQuery(api.files.get, { id: fileId as Id<"files"> });
   const comments = useQuery(api.comments.list, {
@@ -236,6 +247,9 @@ export default function Editor() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [publishTags, setPublishTags] = useState("");
+  const [showRulers, setShowRulers] = useState(false);
+  const [leftTab, setLeftTab] = useState<"layers" | "assets">("layers");
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -377,8 +391,9 @@ export default function Editor() {
       hoverId: state.hoverId,
       drawPreview: previewNode,
       selectionColor: other?.color ?? "#8b5cf6",
+      snapGuides,
     });
-  }, [presence, user, presenting, previewNode, remoteSelection, store]);
+  }, [presence, user, presenting, previewNode, remoteSelection, snapGuides, store]);
 
   useEffect(() => {
     render();
@@ -500,7 +515,7 @@ export default function Editor() {
       return;
     }
 
-    if (["frame", "rect", "ellipse", "line", "polygon"].includes(tool)) {
+    if (["frame", "rect", "ellipse", "line", "polygon", "arrow"].includes(tool)) {
       gestureRef.current = {
         kind: "draw",
         originX: page.x,
@@ -562,13 +577,50 @@ export default function Editor() {
     if (g.kind === "move") {
       const dx = page.x - g.lastX;
       const dy = page.y - g.lastY;
-      if (!g.pushed && (Math.abs(page.x - g.lastX) > 0 || Math.abs(dy) > 0)) {
+      if (!g.pushed) {
         state.pushHistory();
         g.pushed = true;
       }
       g.lastX = page.x;
       g.lastY = page.y;
       state.moveNodesLive(g.ids, dx, dy);
+      // Smart snapping against other nodes' edges/centers.
+      const pageData = activePage(state.doc);
+      const moving = pageData.nodes.filter((n) => g.ids.includes(n.id));
+      const mb = unionBounds(moving);
+      if (mb) {
+        const targets = snapTargets(pageData, g.ids);
+        const THRESH = 6 / zoom; // 6 screen px in page units
+        let bestX: { delta: number; guide: SnapGuide } | null = null;
+        let bestY: { delta: number; guide: SnapGuide } | null = null;
+        for (const cand of targets.xs) {
+          for (const [mv, kind] of [
+            [mb.x, "edge"],
+            [mb.x + mb.w, "edge"],
+            [mb.x + mb.w / 2, "center"],
+          ] as const) {
+            const d = cand.value - mv;
+            if (Math.abs(d) < THRESH && (!bestX || Math.abs(d) < Math.abs(bestX.delta)))
+              bestX = { delta: d, guide: { axis: "x", value: cand.value, kind } };
+          }
+        }
+        for (const cand of targets.ys) {
+          for (const [mv, kind] of [
+            [mb.y, "edge"],
+            [mb.y + mb.h, "edge"],
+            [mb.y + mb.h / 2, "center"],
+          ] as const) {
+            const d = cand.value - mv;
+            if (Math.abs(d) < THRESH && (!bestY || Math.abs(d) < Math.abs(bestY.delta)))
+              bestY = { delta: d, guide: { axis: "y", value: cand.value, kind } };
+          }
+        }
+        if (bestX) state.moveNodesLive(g.ids, bestX.delta, 0);
+        if (bestY) state.moveNodesLive(g.ids, 0, bestY.delta);
+        setSnapGuides(
+          [bestX?.guide, bestY?.guide].filter(Boolean) as SnapGuide[],
+        );
+      }
       return;
     }
 
@@ -612,6 +664,7 @@ export default function Editor() {
   const onPointerUp = () => {
     const g = gestureRef.current;
     gestureRef.current = null;
+    setSnapGuides([]);
     if (g?.kind === "draw" && previewNode) {
       const tooSmall = Math.abs(previewNode.w) < 4 && Math.abs(previewNode.h) < 4;
       if (!tooSmall) store.getState().addNode(previewNode);
@@ -700,6 +753,7 @@ export default function Editor() {
         r: "rect",
         o: "ellipse",
         l: "line",
+        a: "arrow",
         p: "polygon",
         t: "text",
         i: "image",
@@ -713,6 +767,13 @@ export default function Editor() {
           const t = fitTransform(state.doc, el.clientWidth, el.clientHeight);
           state.setViewport(t.zoom, t.panX, t.panY);
         }
+      }
+      // Group / ungroup (⌘G / ⇧⌘G)
+      if (mod && key === "g") {
+        e.preventDefault();
+        if (e.shiftKey) state.ungroupNodes(state.selectedIds);
+        else state.groupNodes(state.selectedIds);
+        return;
       }
       if (
         ["arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key) &&
@@ -910,6 +971,54 @@ export default function Editor() {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            {/* Ruler toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showRulers ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => setShowRulers((r) => !r)}
+                >
+                  <Ruler className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Show rulers</TooltipContent>
+            </Tooltip>
+
+            {/* Account menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[10px] font-bold text-white">
+                    {(user?.name ?? "U").slice(0, 1).toUpperCase()}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => {
+                    leavePresence({ fileId: fileId as Id<"files"> });
+                    navigate("/dashboard");
+                  }}
+                >
+                  <Layers className="mr-2 size-4" />
+                  Dashboard
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                  onClick={async () => {
+                    leavePresence({ fileId: fileId as Id<"files"> });
+                    await signOut();
+                    navigate("/");
+                  }}
+                >
+                  <LogOut className="mr-2 size-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <DropdownMenu open={historyOpen} onOpenChange={setHistoryOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1008,6 +1117,7 @@ export default function Editor() {
                 { t: "rect", icon: Square, label: "Rectangle (R)" },
                 { t: "ellipse", icon: Circle, label: "Ellipse (O)" },
                 { t: "line", icon: Minus, label: "Line (L)" },
+                { t: "arrow", icon: ArrowUpRight, label: "Arrow (A)" },
                 { t: "polygon", icon: Pentagon, label: "Polygon (P)" },
                 { t: "text", icon: Type, label: "Text (T)" },
                 { t: "image", icon: ImageIcon, label: "Image (I)" },
@@ -1033,8 +1143,81 @@ export default function Editor() {
             ))}
           </div>
 
-          {/* Pages + layers */}
+          {/* Pages + layers / assets */}
           <aside className="thin-scroll w-56 shrink-0 overflow-y-auto border-r border-border/60 bg-card/40">
+            {/* Panel tabs */}
+            <div className="flex items-center gap-1 border-b border-border/60 px-3 py-2">
+              <button
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs transition-colors",
+                  leftTab === "layers"
+                    ? "bg-secondary font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setLeftTab("layers")}
+              >
+                Layers
+              </button>
+              <button
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs transition-colors",
+                  leftTab === "assets"
+                    ? "bg-secondary font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setLeftTab("assets")}
+              >
+                Assets
+              </button>
+            </div>
+
+            {leftTab === "assets" ? (
+              /* ---- Assets tab: component library ---- */
+              <div className="p-3">
+                <SectionLabel>Components</SectionLabel>
+                {(() => {
+                  const masters = doc.pages.flatMap((p) =>
+                    p.nodes.filter(
+                      (n) => n.componentId && n.componentId === n.id,
+                    ),
+                  );
+                  if (masters.length === 0)
+                    return (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        Select one or more layers and press ⌘⇧K (or use the
+                        layer menu) to save them as a reusable component. They
+                        appear here for one-click reuse across pages.
+                      </p>
+                    );
+                  return (
+                    <div className="mt-2 space-y-1">
+                      {masters.map((m) => (
+                        <button
+                          key={m.id}
+                          className="flex w-full items-center gap-2 rounded-md border border-border/70 bg-background/60 px-2 py-2 text-left text-xs transition-colors hover:border-violet-400/50"
+                          onClick={() =>
+                            store
+                              .getState()
+                              .insertComponent(m.componentId!, m.x + 24, m.y + 24)
+                          }
+                        >
+                          <Sparkles className="size-3.5 shrink-0 text-violet-400" />
+                          <span className="flex-1 truncate">
+                            {m.name.replace(" — master", "")}
+                          </span>
+                          <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                        </button>
+                      ))}
+                      <p className="pt-1 text-[10px] leading-relaxed text-muted-foreground">
+                        Click a component to stamp an instance on the canvas.
+                        Instances stay linked for future restyling.
+                      </p>
+                    </div>
+                 );
+                })()}
+              </div>
+            ) : (
+              <>
             <div className="p-3">
               <SectionLabel>Pages</SectionLabel>
               <div className="mt-2 space-y-0.5">
@@ -1152,7 +1335,54 @@ export default function Editor() {
                   );
                 })}
               </div>
+
+              {/* Selection actions: group / component / ungroup */}
+              {selectedIds.length > 0 && (
+                <div className="mt-3 border-t border-border/60 pt-3">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {selectedIds.length >= 2 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => store.getState().groupNodes(selectedIds)}
+                      >
+                        <Boxes className="mr-1 size-3.5" /> Group
+                      </Button>
+                    )}
+                    {selectedIds.length === 1 &&
+                      selectedNode?.type === "group" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          onClick={() =>
+                            store.getState().ungroupNodes(selectedIds)
+                          }
+                        >
+                          <Boxes className="mr-1 size-3.5" /> Ungroup
+                        </Button>
+                      )}
+                    {selectedIds.length === 1 &&
+                      selectedNode &&
+                      !selectedNode.componentId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          onClick={() =>
+                            store.getState().createComponent(selectedIds)
+                          }
+                        >
+                          <Sparkles className="mr-1 size-3.5" /> Component
+                        </Button>
+                      )}
+                  </div>
+                </div>
+              )}
             </div>
+          </>
+            )}
           </aside>
 
           {/* Canvas */}
@@ -1470,7 +1700,11 @@ export default function Editor() {
                         value={selectedNode.h}
                         onChange={(v) =>
                           updateSelected({
-                            h: selectedNode.type === "line" ? v : Math.max(1, v),
+                            h:
+                              selectedNode.type === "line" ||
+                              selectedNode.type === "arrow"
+                                ? v
+                                : Math.max(1, v),
                           })
                         }
                       />
@@ -1488,6 +1722,49 @@ export default function Editor() {
                       />
                     </div>
                   </div>
+
+                  {/* Constraints: how this layer follows its frame when resized */}
+                  {selectedNode.type !== "frame" && (
+                    <div>
+                      <SectionLabel>Constraints</SectionLabel>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        How this layer follows its frame when the frame is
+                        resized.
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <select
+                          className="h-8 flex-1 rounded-md border border-border/70 bg-background/60 px-2 text-xs"
+                          value={selectedNode.constraintH ?? "left"}
+                          onChange={(e) =>
+                            updateSelected({
+                              constraintH: e.target
+                                .value as DesignNode["constraintH"],
+                            })
+                          }
+                        >
+                          <option value="left">Left</option>
+                          <option value="center">Center</option>
+                          <option value="right">Right</option>
+                          <option value="scale">Scale</option>
+                        </select>
+                        <select
+                          className="h-8 flex-1 rounded-md border border-border/70 bg-background/60 px-2 text-xs"
+                          value={selectedNode.constraintV ?? "top"}
+                          onChange={(e) =>
+                            updateSelected({
+                              constraintV: e.target
+                                .value as DesignNode["constraintV"],
+                            })
+                          }
+                        >
+                          <option value="top">Top</option>
+                          <option value="center">Center</option>
+                          <option value="bottom">Bottom</option>
+                          <option value="scale">Scale</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <SectionLabel>Appearance</SectionLabel>

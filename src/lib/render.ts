@@ -18,6 +18,12 @@ type HandleBounds = Bounds & { rotation?: number };
 
 export type { Transform };
 
+export interface SnapGuide {
+  axis: "x" | "y";
+  value: number; // page-space coordinate
+  kind: "edge" | "center";
+}
+
 export interface RenderOptions {
   showChrome?: boolean; // selection outlines + handles
   selection?: string[];
@@ -25,6 +31,7 @@ export interface RenderOptions {
   hoverId?: string | null;
   drawPreview?: DesignNode | null;
   selectionColor?: string;
+  snapGuides?: SnapGuide[]; // smart alignment guides to paint
 }
 
 function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
@@ -54,7 +61,7 @@ function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
       else ctx.lineTo(px, py);
     }
     ctx.closePath();
-  } else if (n.type === "line") {
+  } else if (n.type === "line" || n.type === "arrow") {
     ctx.moveTo(n.x, n.y);
     ctx.lineTo(n.x + n.w, n.y + n.h);
   } else {
@@ -79,6 +86,10 @@ function paintNode(
   if (n.hidden) return;
   ctx.save();
   ctx.globalAlpha = n.opacity;
+  if (n.blur && n.blur > 0) {
+    // Layer blur via an SVG filter reference (fast, GPU-composited).
+    ctx.filter = `blur(${n.blur}px)`;
+  }
   if (n.shadowBlur && n.shadowBlur > 0) {
     ctx.shadowBlur = n.shadowBlur;
     ctx.shadowColor = n.shadowColor ?? "rgba(0,0,0,0.45)";
@@ -131,7 +142,7 @@ function paintNode(
   ctx.translate(t.panX, t.panY);
   ctx.scale(t.zoom, t.zoom);
   pathNode(ctx, n);
-  if (n.type !== "line") {
+  if (n.type !== "line" && n.type !== "arrow") {
     if (n.fill) {
       ctx.fillStyle = n.fill;
       ctx.fill();
@@ -145,6 +156,19 @@ function paintNode(
     ctx.strokeStyle = n.stroke ?? n.fill ?? "#8b5cf6";
     ctx.lineWidth = Math.max(n.strokeWidth || 2, 1 / scale);
     ctx.stroke();
+    // Arrowhead for arrow nodes.
+    if (n.type === "arrow") {
+      const ex = n.x + n.w;
+      const ey = n.y + n.h;
+      const ang = Math.atan2(n.h, n.w);
+      const head = Math.max(10, n.strokeWidth * 4);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - head * Math.cos(ang - 0.45), ey - head * Math.sin(ang - 0.45));
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - head * Math.cos(ang + 0.45), ey - head * Math.sin(ang + 0.45));
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -222,6 +246,27 @@ export function renderDoc(
 
   const scale = t.zoom * dpr;
   for (const n of page.nodes) {
+    // Smart alignment guides (painted under content chrome).
+    if (opts.snapGuides && opts.snapGuides.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = "#f0abfc"; // fuchsia-300
+      ctx.lineWidth = 1;
+      for (const guide of opts.snapGuides) {
+        ctx.beginPath();
+        if (guide.axis === "x") {
+          const sx = guide.value * t.zoom + t.panX;
+          ctx.moveTo(sx + 0.5, 0);
+          ctx.lineTo(sx + 0.5, height);
+        } else {
+          const sy = guide.value * t.zoom + t.panY;
+          ctx.moveTo(0, sy + 0.5);
+          ctx.lineTo(width, sy + 0.5);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     if ((n.rotation ?? 0) === 0) {
       paintNode(ctx, n, t, scale);
       continue;
