@@ -1,4 +1,6 @@
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
+import { useMutation, useQuery } from "convex/react";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,24 +23,26 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { renderThumb } from "@/lib/thumb";
-import type { DesignDoc } from "@/lib/geo";
 import {
+  Compass,
   FilePlus2,
   FolderPlus,
+  Globe,
   Home,
+  LogOut,
   MoreHorizontal,
   RotateCcw,
   Search,
   Smartphone,
   Star,
   Trash2,
+  LayoutGrid,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { Id } from "@/convex/_generated/dataModel";
 
 type ViewTab = "recent" | "starred" | "trash";
+type TemplateKind = "blank" | "mobile" | "web";
 
 interface Project {
   _id: string;
@@ -49,38 +53,27 @@ interface FileRow {
   _id: string;
   name: string;
   projectId: string;
-  doc: DesignDoc | null;
   starred: boolean;
   trashed: boolean;
+  published: boolean;
   updatedAt: number;
+  authorName?: string;
 }
 
-/** Small canvas that renders a live preview of a design document. */
-function FileThumb({ doc }: { doc: DesignDoc | null }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
+/** Deterministic pastel gradient so every file card is distinct and colorful. */
+const TILE_GRADIENTS = [
+  "from-violet-500/70 to-fuchsia-500/50",
+  "from-cyan-500/60 to-blue-500/50",
+  "from-emerald-500/60 to-teal-500/40",
+  "from-amber-400/60 to-orange-500/50",
+  "from-pink-500/60 to-rose-500/50",
+  "from-indigo-500/60 to-violet-500/50",
+];
 
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = 320 * dpr;
-    canvas.height = 220 * dpr;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    renderThumb(ctx, doc, 320, 220);
-  }, [doc]);
-
-  return (
-    <div className="relative flex h-[220px] items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
-      <canvas ref={ref} className="h-[220px] w-[320px]" />
-      {!doc && (
-        <span className="absolute text-xs text-muted-foreground">
-          Empty file
-        </span>
-      )}
-    </div>
-  );
+function tileGradient(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return TILE_GRADIENTS[Math.abs(h) % TILE_GRADIENTS.length];
 }
 
 function timeAgo(ts: number) {
@@ -95,28 +88,51 @@ function timeAgo(ts: number) {
   return new Date(ts).toLocaleDateString();
 }
 
+/** Minimal starter document — swapped for the shared template builder later. */
+function starterDoc(kind: TemplateKind) {
+  const pageId = `p_${Math.random().toString(36).slice(2, 9)}`;
+  const node = (i: number) => `n_${Math.random().toString(36).slice(2, 9)}${i}`;
+  const nodes: unknown[] = [];
+  if (kind === "mobile") {
+    nodes.push(
+      { id: node(1), type: "frame", name: "iPhone frame", x: 60, y: 60, w: 390, h: 844, fill: "#17171c", stroke: null, strokeWidth: 0, radius: 40, opacity: 1 },
+      { id: node(2), type: "text", name: "Title", x: 92, y: 116, w: 320, h: 36, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "Good morning, Ava", fontSize: 26, fontWeight: 700, align: "left", color: "#ffffff" },
+      { id: node(3), type: "rect", name: "Hero card", x: 92, y: 200, w: 326, h: 150, fill: "#8b5cf6", stroke: null, strokeWidth: 0, radius: 20, opacity: 1 },
+      { id: node(4), type: "text", name: "Hero title", x: 116, y: 224, w: 240, h: 26, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "Design sync", fontSize: 18, fontWeight: 700, align: "left", color: "#ffffff" },
+    );
+  } else if (kind === "web") {
+    nodes.push(
+      { id: node(1), type: "frame", name: "Dashboard frame", x: 80, y: 80, w: 1120, h: 700, fill: "#17171c", stroke: null, strokeWidth: 0, radius: 16, opacity: 1 },
+      { id: node(2), type: "rect", name: "Sidebar", x: 80, y: 80, w: 220, h: 700, fill: "#1d1d23", stroke: null, strokeWidth: 0, radius: 16, opacity: 1 },
+      { id: node(3), type: "text", name: "Brand", x: 108, y: 112, w: 180, h: 26, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "DesignBox", fontSize: 18, fontWeight: 700, align: "left", color: "#ffffff" },
+      { id: node(4), type: "rect", name: "KPI 1", x: 348, y: 208, w: 260, h: 120, fill: "#232329", stroke: null, strokeWidth: 0, radius: 14, opacity: 1 },
+    );
+  }
+  return { pages: [{ id: pageId, name: "Page 1", nodes }], activePageId: pageId, background: "#101012" };
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
-  const bootstrap = useQuery(api.bootstrap.ensureUserWorkspace);
   const projects = useQuery(api.projects.list);
   const files = useQuery(api.files.recent);
 
   const createProject = useMutation(api.projects.create);
   const createFile = useMutation(api.files.create);
-  const updateFile = useMutation(api.files.update);
   const trashFile = useMutation(api.files.trash);
   const restoreFile = useMutation(api.files.restore);
   const removeForever = useMutation(api.files.removeForever);
   const setStarred = useMutation(api.files.setStarred);
+  const publishFile = useMutation(api.files.publish);
+  const unpublishFile = useMutation(api.files.unpublish);
 
   const [tab, setTab] = useState<ViewTab>("recent");
   const [search, setSearch] = useState("");
   const [newDialog, setNewDialog] = useState<null | "project" | "file">(null);
   const [newName, setNewName] = useState("");
   const [projectId, setProjectId] = useState<string>("");
-  const [template, setTemplate] = useState<"blank" | "mobile" | "web">("blank");
+  const [template, setTemplate] = useState<TemplateKind>("mobile");
 
   const projectList = (projects ?? []) as Project[];
   const fileList = (files ?? []) as FileRow[];
@@ -151,6 +167,7 @@ export default function Dashboard() {
       projectId: projectId as Id<"projects">,
       name: newName.trim(),
       template,
+      doc: starterDoc(template),
     });
     setNewDialog(null);
     setNewName("");
@@ -180,48 +197,55 @@ export default function Dashboard() {
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-border/70 bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2">
-            <Home className="size-4 text-foreground" />
-            <span className="text-sm font-semibold tracking-tight">
-              DesignBox
+          <button
+            className="flex items-center gap-2"
+            onClick={() => navigate("/dashboard")}
+          >
+            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400">
+              <LayoutGrid className="size-4 text-white" />
             </span>
+            <span className="text-sm font-semibold tracking-tight">DesignBox</span>
+          </button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => navigate("/explore")}>
+              <Compass className="size-4" />
+              Explore
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="gap-2 px-2">
+                  <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white">
+                    {(user?.name ?? "U").slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="text-sm">{user?.name ?? "Account"}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+                  <LogOut className="mr-2 size-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2 px-2">
-                <span className="flex size-7 items-center justify-center rounded-full bg-foreground text-[11px] font-medium text-background">
-                  {(user?.name ?? "U").slice(0, 1).toUpperCase()}
-                </span>
-                <span className="text-sm">{user?.name ?? "Account"}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
-                <LogOut className="mr-2 size-4" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </header>
 
       <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
         {/* Heading */}
         <div className="flex flex-col gap-1">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-widest text-violet-400">
             Workspace
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Your UI/UX projects
+            Your UI and UX projects
           </h1>
         </div>
 
         {/* Projects strip */}
         <section className="mt-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground">
-              Projects
-            </h2>
+            <h2 className="text-sm font-medium text-muted-foreground">Projects</h2>
             <Button
               variant="ghost"
               size="sm"
@@ -238,9 +262,9 @@ export default function Dashboard() {
           <div className="mt-3 flex flex-wrap gap-2">
             {projects === undefined ? (
               <>
-                <Skeleton className="h-8 w-28" />
-                <Skeleton className="h-8 w-24" />
-                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-8 w-28 rounded-full" />
+                <Skeleton className="h-8 w-24 rounded-full" />
+                <Skeleton className="h-8 w-32 rounded-full" />
               </>
             ) : projectList.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -251,7 +275,11 @@ export default function Dashboard() {
                 <Badge
                   key={p._id}
                   variant={p._id === projectId ? "default" : "outline"}
-                  className="cursor-pointer rounded-full px-3 py-1 text-xs font-normal"
+                  className={cn(
+                    "cursor-pointer rounded-full px-3 py-1 text-xs font-normal transition-colors",
+                    p._id === projectId &&
+                      "border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white",
+                  )}
                   onClick={() => setProjectId(p._id)}
                 >
                   {p.name}
@@ -290,7 +318,7 @@ export default function Dashboard() {
               />
             </div>
             <Button
-              className="gap-2"
+              className="gap-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
               onClick={() => {
                 setNewName("");
                 setTemplate("mobile");
@@ -309,7 +337,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => (
                 <Card key={i} className="border-border/70 p-3 shadow-none">
-                  <Skeleton className="h-[220px] w-full" />
+                  <Skeleton className="h-[160px] w-full" />
                   <Skeleton className="mt-3 h-4 w-2/3" />
                 </Card>
               ))}
@@ -320,7 +348,7 @@ export default function Dashboard() {
                 {tab === "trash"
                   ? "Trash is empty."
                   : tab === "starred"
-                    ? "No starred files yet."
+                    ? "No starred files yet. Star a design to pin it here."
                     : "No files found. Create your first design."}
               </p>
             </div>
@@ -329,10 +357,25 @@ export default function Dashboard() {
               {visibleFiles.map((f) => (
                 <Card
                   key={f._id}
-                  className="group cursor-pointer border-border/70 p-3 shadow-none transition-colors hover:border-foreground/30"
+                  className="group cursor-pointer border-border/70 p-3 shadow-none transition-colors hover:border-violet-400/50"
                   onClick={() => navigate(`/design/${f._id}`)}
                 >
-                  <FileThumb doc={f.doc} />
+                  <div
+                    className={cn(
+                      "relative flex h-[160px] items-center justify-center overflow-hidden rounded-md bg-gradient-to-br",
+                      tileGradient(f.name),
+                    )}
+                  >
+                    <span className="text-2xl font-bold text-white/90">
+                      {f.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    {f.published && (
+                      <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-medium text-white">
+                        <Globe className="size-3" />
+                        Published
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-3 flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{f.name}</p>
@@ -350,14 +393,19 @@ export default function Dashboard() {
                         variant="ghost"
                         size="icon-sm"
                         onClick={() =>
-                          setStarred({ id: f._id as Id<"files">, starred: !f.starred })
+                          setStarred({
+                            id: f._id as Id<"files">,
+                            starred: !f.starred,
+                          })
                         }
                         title={f.starred ? "Unstar" : "Star"}
                       >
                         <Star
                           className={cn(
                             "size-4",
-                            f.starred ? "fill-foreground text-foreground" : "text-muted-foreground",
+                            f.starred
+                              ? "fill-amber-400 text-amber-400"
+                              : "text-muted-foreground",
                           )}
                         />
                       </Button>
@@ -367,7 +415,24 @@ export default function Dashboard() {
                             <MoreHorizontal className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-44">
+                          {!f.trashed && (
+                            <DropdownMenuItem
+                              className="cursor-pointer"
+                              onClick={() =>
+                                f.published
+                                  ? unpublishFile({ id: f._id as Id<"files"> })
+                                  : publishFile({
+                                      id: f._id as Id<"files">,
+                                      tags: [],
+                                      description: undefined,
+                                    })
+                              }
+                            >
+                              <Globe className="mr-2 size-4" />
+                              {f.published ? "Unpublish" : "Publish to Explore"}
+                            </DropdownMenuItem>
+                          )}
                           {f.trashed ? (
                             <>
                               <DropdownMenuItem
@@ -408,40 +473,41 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Template hint */}
-        {tab === "recent" && fileList.filter((f) => !f.trashed).length === 0 && (
-          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card
-              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-foreground/30"
-              onClick={() => {
-                setTemplate("mobile");
-                setNewName("Mobile App");
-                setNewDialog("file");
-              }}
-            >
-              <Smartphone className="size-5" />
-              <p className="mt-3 text-sm font-medium">Mobile App template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Pre-built iPhone frame with header, feed cards and buttons.
-              </p>
-            </Card>
-            <Card
-              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-foreground/30"
-              onClick={() => {
-                setTemplate("web");
-                setNewName("Web App");
-                setNewDialog("file");
-              }}
-            >
-              <LayoutGridIcon className="size-5" />
-              <p className="mt-3 text-sm font-medium">Web App template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Desktop frame with sidebar navigation and KPI cards.
-              </p>
-              {setTemplate && template === "web" && null}
-            </Card>
-          </div>
-        )}
+        {/* Template shortcuts */}
+        {tab === "recent" &&
+          fileList.filter((f) => !f.trashed).length === 0 && (
+            <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Card
+                className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+                onClick={() => {
+                  setTemplate("mobile");
+                  setNewName("Mobile app");
+                  setNewDialog("file");
+                }}
+              >
+                <Smartphone className="size-5 text-cyan-400" />
+                <p className="mt-3 text-sm font-medium">Mobile app template</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A ready-made phone screen with a header, hero card, and
+                  buttons you can restyle.
+                </p>
+              </Card>
+              <Card
+                className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+                onClick={() => {
+                  setTemplate("web");
+                  setNewName("Web dashboard");
+                  setNewDialog("file");
+                }}
+              >
+                <LayoutGrid className="size-5 text-violet-400" />
+                <p className="mt-3 text-sm font-medium">Web dashboard template</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A desktop frame with sidebar navigation and metric cards.
+                </p>
+              </Card>
+            </div>
+          )}
       </div>
 
       {/* New file dialog */}
@@ -467,8 +533,8 @@ export default function Dashboard() {
                   className={cn(
                     "rounded-md border px-2 py-2 text-xs capitalize transition-colors",
                     template === t
-                      ? "border-foreground bg-secondary font-medium"
-                      : "border-border text-muted-foreground hover:border-foreground/30",
+                      ? "border-violet-400 bg-violet-500/10 font-medium text-foreground"
+                      : "border-border text-muted-foreground hover:border-violet-400/40",
                   )}
                   onClick={() => setTemplate(t)}
                 >
@@ -492,6 +558,7 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateFile}
               disabled={!newName.trim() || !projectId}
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
             >
               Create
             </Button>
@@ -519,7 +586,11 @@ export default function Dashboard() {
             onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
           />
           <DialogFooter>
-            <Button onClick={handleCreateProject} disabled={!newName.trim()}>
+            <Button
+              onClick={handleCreateProject}
+              disabled={!newName.trim()}
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+            >
               Create
             </Button>
           </DialogFooter>

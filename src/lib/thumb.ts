@@ -1,0 +1,1 @@
+export { renderThumb } from "./render";
