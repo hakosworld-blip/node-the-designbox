@@ -161,6 +161,48 @@ export const unpublish = mutation({
   },
 });
 
+/** Remix: copy any published file's doc into the caller's workspace. */
+export const duplicate = mutation({
+  args: { id: v.id("files") },
+  handler: async (ctx, { id }) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) throw new Error("Not signed in");
+    const source = await ctx.db.get(id);
+    if (!source || source.trashed) throw new Error("File not found");
+
+    // The remixing user's default project (same bootstrap the Dashboard uses).
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
+      .first();
+    if (!project) throw new Error("Create a workspace first");
+
+    const now = Date.now();
+    const fileId = await ctx.db.insert("files", {
+      ownerId: user._id,
+      projectId: project._id,
+      name: `${source.name} (remix)`,
+      doc: source.doc,
+      version: 1,
+      lastVersionAt: now,
+      starred: false,
+      trashed: false,
+      published: false,
+      tags: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("docVersions", {
+      fileId,
+      version: 1,
+      doc: source.doc,
+      label: `Remixed from "${source.name}"`,
+      createdAt: now,
+    });
+    return fileId;
+  },
+});
+
 /** Public catalog of published, non-trashed files. */
 export const listPublished = query({
   args: {},

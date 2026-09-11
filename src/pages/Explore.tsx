@@ -1,7 +1,8 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 
 import { useNavigate } from "react-router";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Boxes,
   Compass,
+  GitFork,
   Search,
   Sparkles,
   User as UserIcon,
@@ -66,6 +68,7 @@ export default function Explore() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const published = useQuery(api.catalog.listPublished);
+  const remixFile = useMutation(api.files.duplicate);
 
   const [search, setSearch] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
@@ -220,6 +223,19 @@ export default function Explore() {
                       : `/auth?returnTo=${encodeURIComponent(`/design/${f._id}`)}`,
                   )
                 }
+                onRemix={async () => {
+                  if (!isAuthenticated) {
+                    navigate(`/auth?returnTo=${encodeURIComponent("/explore")}`);
+                    return;
+                  }
+                  try {
+                    const newId = await remixFile({ id: f._id as Id<"files"> });
+                    toast.success(`Remixed "${f.name}" into your workspace`);
+                    navigate(`/design/${newId}`);
+                  } catch {
+                    toast.error("Could not remix this design. Try again.");
+                  }
+                }}
               />
             ))}
           </div>
@@ -237,6 +253,7 @@ function ExploreCard({
   publishedAt,
   tags,
   onOpen,
+  onRemix,
 }: {
   fileId: Id<"files">;
   name: string;
@@ -244,14 +261,19 @@ function ExploreCard({
   publishedAt?: number;
   tags: string[];
   onOpen: () => void;
+  onRemix: () => void | Promise<void>;
 }) {
   const file = useQuery(api.files.get, { id: fileId });
   const doc = file?.doc as DesignDoc | undefined;
   return (
-    <button
-      onClick={onOpen}
+    <div
       className="group overflow-hidden rounded-xl border border-border/60 bg-card/60 text-left transition-colors hover:border-violet-400/50"
     >
+      <button
+        onClick={onOpen}
+        className="block w-full text-left"
+        aria-label={`Open ${name}`}
+      >
       <div className="overflow-hidden bg-surface-canvas p-0">
         <DocThumb doc={doc} name={name} />
       </div>
@@ -274,10 +296,21 @@ function ExploreCard({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1 border-t border-border/50 px-4 py-2.5 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+      </button>
+      <div className="flex items-center gap-1 border-t border-border/50 px-4 py-2.5 text-[11px] text-muted-foreground">
         <Sparkles className="size-3 text-violet-400" />
-        Open to inspect and remix
+        <span className="flex-1">Click to open and inspect</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            void onRemix();
+          }}
+          className="flex items-center gap-1 rounded-full bg-violet-500/15 px-2.5 py-1 text-[11px] font-medium text-violet-300 transition-colors hover:bg-violet-500/25 hover:text-violet-200"
+        >
+          <GitFork className="size-3" />
+          Remix
+        </button>
       </div>
-    </button>
+    </div>
   );
 }
