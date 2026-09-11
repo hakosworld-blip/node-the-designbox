@@ -234,6 +234,210 @@ type Gesture =
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 
+/* ---------- Figma-style alignment / distribute / flip bar ---------- */
+
+function AlignBar() {
+  const selectedIds = useEditor((s) => s.selectedIds);
+  if (selectedIds.length < 2) return null;
+  return (
+    <div className="fixed left-1/2 top-14 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border/60 bg-card/90 px-2 py-1 shadow-lg backdrop-blur">
+      {(
+        [
+          { m: "left", icon: AlignStartVertical, label: "Align left" },
+          { m: "hcenter", icon: AlignCenterVertical, label: "Align horizontal centers" },
+          { m: "right", icon: AlignEndVertical, label: "Align right" },
+          { m: "top", icon: AlignStartHorizontal, label: "Align top" },
+          { m: "vcenter", icon: AlignCenterHorizontal, label: "Align vertical centers" },
+          { m: "bottom", icon: AlignEndHorizontal, label: "Align bottom" },
+        ] as const
+      ).map(({ m, icon: Icon, label }) => (
+        <Tooltip key={m}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7"
+              onClick={() => useEditor.getState().alignNodes(selectedIds, m)}
+            >
+              <Icon className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
+      ))}
+      <span className="mx-0.5 h-4 w-px bg-border" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            disabled={selectedIds.length < 3}
+            onClick={() => useEditor.getState().distributeNodes(selectedIds, "h")}
+          >
+            <AlignHorizontalDistributeCenter className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Distribute horizontally</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            disabled={selectedIds.length < 3}
+            onClick={() => useEditor.getState().distributeNodes(selectedIds, "v")}
+          >
+            <AlignVerticalDistributeCenter className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Distribute vertically</TooltipContent>
+      </Tooltip>
+      <span className="mx-0.5 h-4 w-px bg-border" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            onClick={() => useEditor.getState().flipNodes(selectedIds, "h")}
+          >
+            <FlipHorizontal2 className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Flip horizontal</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            onClick={() => useEditor.getState().flipNodes(selectedIds, "v")}
+          >
+            <FlipVertical2 className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Flip vertical</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+/* ---------- Frame presets: stamp exact device sizes ---------- */
+
+function FramePresetBar({ onPick }: { onPick: (p: FramePreset) => void }) {
+  const tool = useEditor((s) => s.tool);
+  if (tool !== "frame") return null;
+  return (
+    <div className="fixed left-1/2 top-14 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/60 bg-card/90 px-3 py-1.5 shadow-lg backdrop-blur">
+      <span className="mr-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+        Frames
+      </span>
+      {DEFAULT_FRAME_PRESETS.map((p) => (
+        <button
+          key={p.id}
+          title={`${p.w} × ${p.h}`}
+          className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground transition-colors hover:bg-violet-500/25 hover:text-violet-200"
+          onClick={() => onPick(p)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Right-click canvas context menu ---------- */
+
+function CanvasContextMenu({
+  menu,
+  onClose,
+}: {
+  menu: { sx: number; sy: number; page: { x: number; y: number } };
+  onClose: () => void;
+}) {
+  const selectedIds = useEditor((s) => s.selectedIds);
+  const items: {
+    label: string;
+    hint?: string;
+    disabled?: boolean;
+    run: () => void;
+  }[] = [
+    {
+      label: "Copy",
+      hint: "⌘C",
+      disabled: selectedIds.length === 0,
+      run: () => useEditor.getState().copyNodes(selectedIds),
+    },
+    {
+      label: "Paste here",
+      hint: "⌘V",
+      run: () => useEditor.getState().pasteNodes(menu.page),
+    },
+    {
+      label: "Duplicate",
+      hint: "⌘D",
+      disabled: selectedIds.length === 0,
+      run: () => useEditor.getState().duplicateNodes(selectedIds),
+    },
+    {
+      label: "Bring forward",
+      hint: "]",
+      disabled: selectedIds.length === 0,
+      run: () =>
+        selectedIds.forEach((id) => useEditor.getState().reorder(id, "forward")),
+    },
+    {
+      label: "Send backward",
+      hint: "[",
+      disabled: selectedIds.length === 0,
+      run: () =>
+        selectedIds.forEach((id) => useEditor.getState().reorder(id, "backward")),
+    },
+    {
+      label: "Delete",
+      hint: "⌫",
+      disabled: selectedIds.length === 0,
+      run: () => useEditor.getState().deleteNodes(selectedIds),
+    },
+  ];
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-30"
+        onPointerDown={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        className="fixed z-40 w-48 rounded-lg border border-border bg-popover p-1 shadow-xl"
+        style={{ left: menu.sx, top: menu.sy }}
+      >
+        {items.map((it) => (
+          <button
+            key={it.label}
+            disabled={it.disabled}
+            onClick={() => {
+              it.run();
+              onClose();
+            }}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+          >
+            <span>{it.label}</span>
+            {it.hint && (
+              <span className="text-[10px] text-muted-foreground">{it.hint}</span>
+            )}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ---------- Editor page ---------- */
 
 export default function Editor() {
@@ -937,17 +1141,17 @@ export default function Editor() {
         return;
       }
       // Layer order: [ / ] send backward / bring forward (Figma convention)
-      if (key === "[") {
+      if (e.key === "[") {
         for (const id of state.selectedIds)
           state.reorder(id, "backward");
         return;
       }
-      if (key === "]") {
+      if (e.key === "]") {
         for (const id of state.selectedIds) state.reorder(id, "forward");
         return;
       }
       // Hide / lock the selection (⌘⇧H / ⌘⇧L)
-      if (mod && e.shiftKey && key === "h") {
+      if (mod && e.shiftKey && e.key.toLowerCase() === "h") {
         e.preventDefault();
         const page = activePage(state.doc);
         const anyVisible = page.nodes.some(
@@ -959,7 +1163,7 @@ export default function Editor() {
         );
         return;
       }
-      if (mod && e.shiftKey && key === "l") {
+      if (mod && e.shiftKey && e.key.toLowerCase() === "l") {
         e.preventDefault();
         const page = activePage(state.doc);
         const anyUnlocked = page.nodes.some(
@@ -969,7 +1173,7 @@ export default function Editor() {
         return;
       }
       // Outline mode toggle (⌘⇧O)
-      if (mod && e.shiftKey && key === "o") {
+      if (mod && e.shiftKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         setOutlineMode((v) => !v);
         return;
@@ -990,7 +1194,7 @@ export default function Editor() {
         return;
       }
       // Zoom to selection (Shift+1): fit the current selection.
-      if (e.shiftKey && key === "!") {
+      if (e.shiftKey && e.key === "!") {
         const el = wrapRef.current;
         if (el && state.selectedIds.length > 0) {
           const nodes = activePage(state.doc).nodes.filter((n) =>
