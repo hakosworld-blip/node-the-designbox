@@ -10,6 +10,7 @@
 import { create } from "zustand";
 import {
   activePage,
+  applyAutoLayouts,
   nodeBounds,
   uid,
   unionBounds,
@@ -86,6 +87,19 @@ interface EditorState {
   distributeNodes: (ids: string[], axis: "h" | "v") => void;
   rotateNodes: (ids: string[], delta: number) => void;
   flipNodes: (ids: string[], axis: "h" | "v") => void;
+  /** Boolean operations on 2+ shapes (union / subtract / intersect). */
+  booleanNodes: (
+    ids: string[],
+    op: "union" | "subtract" | "intersect",
+  ) => void;
+}
+
+/**
+ * Write-through helper: apply a mutation, then re-run any frame auto layouts.
+ * Everything that can move nodes goes through here so layout stays live.
+ */
+function withLayout(doc: DesignDoc): DesignDoc {
+  return applyAutoLayouts(doc);
 }
 
 /** Clipboard lives outside React/store state so it never lands in history. */
@@ -142,12 +156,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   pushHistory: () => {
     const { doc, past } = get();
     set({ past: [...past, cloneDoc(doc)], future: [], dirty: true });
-  },
-
-  addNode: (node) => {
+  },  addNode: (node) => {
     const { doc, past } = get();
     set({
-      doc: mapNodes(doc, (nodes) => [...nodes, node]),
+      doc: withLayout(mapNodes(doc, (nodes) => [...nodes, node])),
+
       past: [...past, cloneDoc(doc)],
       future: [],
       dirty: true,
@@ -164,7 +177,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     );
 
     set({
-      doc: mapNodes(doc, (nodes) => {
+      doc: withLayout(
+        mapNodes(doc, (nodes) => {
         let next = nodes.map((n) => (ids.includes(n.id) ? { ...n, ...patch } : n));
 
         // Constraint-follow: children of resized frames shift/scale per their
@@ -215,6 +229,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         }
         return next;
       }),
+      ),
       dirty: true,
     });
   },
@@ -222,9 +237,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   moveNodesLive: (ids, dx, dy) => {
     const { doc } = get();
     set({
-      doc: mapNodes(doc, (nodes) =>
-        nodes.map((n) =>
-          ids.includes(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n,
+      doc: withLayout(
+        mapNodes(doc, (nodes) =>
+          nodes.map((n) =>
+            ids.includes(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n,
+          ),
         ),
       ),
       dirty: true,
@@ -466,6 +483,96 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   setViewport: (zoom, panX, panY) => set({ zoom, panX, panY }),
+
+  /**
+   * Boolean operations between two or more flat shapes (Figma-inspired).
+   * Union: merge bounds into one rounded rect. Subtract: carve the topmost
+   * shape's bounds out of the bottom one. Intersect: keep the overlap box.
+   * Result is a new shape carrying the bottom shape's paint.
+   */
+  booleanNodes: (ids, op) => {
+    const { doc, past } = get();
+    const page = activePage(doc);
+    const shapes = page.nodes.filter(
+      (n) =>
+        ids.includes(n.id) &&
+        n.type !== "group" &&
+        n.type !== "frame" &&
+        n.type !== "text" &&
+        n.type !== "image",
+    );
+    if (shapes.length < 2) return;
+    // Paint order: first in the layer list is the bottom shape.
+    const bottom = shapes[0];
+    const b = unionBounds(shapes);
+    if (!b) return;
+
+    let nb: Bounds;
+    if (op === "union") {
+      nb = b;
+    } else if (op === "intersect") {
+      let ix = -Infinity,
+        iy = -Infinity,
+        ix2 = Infinity,
+        iy2 = Infinity;
+      for (const s of shapes) {
+        const sb = nodeBounds(s);
+        ix = Math.max(ix, sb.x);
+        iy = Math.max(iy, sb.y);
+        ix2 = Math.min(ix2, sb.x + sb.w);
+        iy2 = Math.min(iy2, sb.y + sb.h);
+      }
+      if (ix2 <= ix || iy2 <= iy) return; // no overlap
+      nb = { x: ix, y: iy, w: ix2 - ix, h: iy2 - iy };
+    } else {
+      // Subtract: subtract the union of all upper shapes from the bottom one.
+      const upper = unionBounds(shapes.slice(1));
+      if (!upper) return;
+      nb = nodeBounds(bottom);
+      // Keep the L-shaped remainder as the bottom bounds minus the cut.
+      const cut = { ...upper };
+      const overlap = {
+        x: Math.max(nb.x, cut.x),
+        y: Math.max(nb.y, cut.y),
+        w: Math.min(nb.x + nb.w, cut.x + cut.w) - Math.max(nb.x, cut.x),
+        h: Math.min(nb.y + nb.h, cut.y + cut.h) - Math.max(nb.y, cut.y),
+      };
+      if (overlap.w <= 0 || overlap.h <= 0) return; // nothing to subtract
+      // Simplified subtract: result hugs the region left of/above the cut.
+      const keepRight = nb.x + nb.w - (cut.x + cut.w);
+      const keepBelow = nb.y + nb.h - (cut.y + cut.h);
+      if (keepRight >= keepBelow) {
+        nb = { x: cut.x + cut.w, y: nb.y, w: Math.max(2, keepRight), h: nb.h };
+      } else {
+        nb = { x: nb.x, y: cut.y + cut.h, w: nb.w, h: Math.max(2, keepBelow) };
+      }
+    }
+
+    const result: DesignNode = {
+      ...JSON.parse(JSON.stringify(bottom)),
+      id: uid(bottom.type === "ellipse" ? "e" : "r"),
+      name: op === "union" ? "Union" : op === "subtract" ? "Subtract" : "Intersect",
+      x: nb.x,
+      y: nb.y,
+      w: nb.w,
+      h: nb.h,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+    };
+    set({
+      doc: withLayout(
+        mapNodes(doc, (nodes) => [
+          ...nodes.filter((n) => !ids.includes(n.id)),
+          result,
+        ]),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+      selectedIds: [result.id],
+    });
+  },
 
   undo: () => {
     const { past, future, doc } = get();

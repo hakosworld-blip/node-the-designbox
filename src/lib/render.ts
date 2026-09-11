@@ -14,6 +14,23 @@ import {
   type Transform,
 } from "./geo";
 
+/** Canvas blend modes (Figma-inspired). "normal" = source-over. */
+export const BLEND_MODES = [
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "difference",
+  "exclusion",
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
 type HandleBounds = Bounds & { rotation?: number };
 
 export type { Transform };
@@ -90,6 +107,26 @@ function applyFlip(ctx: CanvasRenderingContext2D, n: DesignNode) {
   ctx.translate(-cx, -cy);
 }
 
+/** Linear-gradient fill between two colors at an angle (degrees). */
+function gradientPaint(ctx: CanvasRenderingContext2D, n: DesignNode) {
+  const g = n.gradient;
+  if (!g) return n.fill ?? "#8b5cf6";
+  const b = nodeBounds(n);
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const rad = ((g.angle - 90) * Math.PI) / 180;
+  const len = (Math.abs(b.w * Math.cos(rad)) + Math.abs(b.h * Math.sin(rad))) / 2;
+  const grad = ctx.createLinearGradient(
+    cx - Math.cos(rad) * len,
+    cy - Math.sin(rad) * len,
+    cx + Math.cos(rad) * len,
+    cy + Math.sin(rad) * len,
+  );
+  grad.addColorStop(0, g.from);
+  grad.addColorStop(1, g.to);
+  return grad;
+}
+
 function paintNode(
   ctx: CanvasRenderingContext2D,
   n: DesignNode,
@@ -103,6 +140,9 @@ function paintNode(
   if (n.blur && n.blur > 0) {
     // Layer blur via an SVG filter reference (fast, GPU-composited).
     ctx.filter = `blur(${n.blur}px)`;
+  }
+  if (n.blend && n.blend !== "normal") {
+    ctx.globalCompositeOperation = n.blend as GlobalCompositeOperation;
   }
   if (n.shadowBlur && n.shadowBlur > 0) {
     ctx.shadowBlur = n.shadowBlur;
@@ -177,19 +217,23 @@ function paintNode(
       ctx.stroke();
     } else {
       if (n.fill) {
-        ctx.fillStyle = n.fill;
+        ctx.fillStyle = gradientPaint(ctx, n);
         ctx.fill();
       }
       if (n.stroke && n.strokeWidth > 0) {
         ctx.strokeStyle = n.stroke;
         ctx.lineWidth = Math.max(n.strokeWidth, 0.5 / scale);
+        if (n.dash && n.dash > 0) ctx.setLineDash([n.dash, n.dash]);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
   } else {
     ctx.strokeStyle = n.stroke ?? n.fill ?? "#8b5cf6";
     ctx.lineWidth = Math.max(n.strokeWidth || 2, 1 / scale);
+    if (n.dash && n.dash > 0) ctx.setLineDash([n.dash, n.dash]);
     ctx.stroke();
+    ctx.setLineDash([]);
     // Arrowhead for arrow nodes.
     if (n.type === "arrow") {
       const ex = n.x + n.w;

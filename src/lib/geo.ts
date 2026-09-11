@@ -54,6 +54,18 @@ export interface DesignNode {
   // Constraints: how a node follows its frame when the frame resizes.
   constraintH?: "left" | "center" | "right" | "scale";
   constraintV?: "top" | "center" | "bottom" | "scale";
+  // Figma-inspired paint extras.
+  gradient?: { from: string; to: string; angle: number } | null; // linear fill
+  blend?: string; // canvas globalCompositeOperation (multiply, screen, …)
+  dash?: number; // dashed stroke length; 0/undefined = solid
+  // Auto layout (frames only): children are re-flowed inside the frame.
+  layout?: FrameLayout | null;
+}
+
+export interface FrameLayout {
+  mode: "row" | "column";
+  gap: number;
+  padding: number;
 }
 
 export interface DesignPage {
@@ -262,6 +274,63 @@ export function pageToScreen(t: Transform, x: number, y: number) {
 
 export function screenToPage(t: Transform, sx: number, sy: number) {
   return { x: (sx - t.panX) / t.zoom, y: (sy - t.panY) / t.zoom };
+}
+
+/**
+ * Re-flow children of every frame that has auto layout enabled. Children are
+ * the nodes whose center sits inside the frame; they are sorted along the
+ * layout axis and stacked from the frame's padded origin with an even gap.
+ * Dragging a child along the axis re-sorts it — a live, drag-to-reorder feel.
+ */
+export function applyAutoLayouts(doc: DesignDoc): DesignDoc {
+  let changed = false;
+  const pages = doc.pages.map((p) => {
+    const frames = p.nodes.filter((n) => n.type === "frame" && n.layout);
+    if (frames.length === 0) return p;
+    let nodes = p.nodes;
+    for (const f of frames) {
+      const lay = f.layout!;
+      const pad = Math.max(0, lay.padding || 0);
+      const gap = Math.max(0, lay.gap || 0);
+      const kids = nodes
+        .filter(
+          (n) =>
+            n.id !== f.id &&
+            !n.locked &&
+            !n.hidden &&
+            n.type !== "group" &&
+            n.x + n.w / 2 > f.x &&
+            n.x + n.w / 2 < f.x + f.w &&
+            n.y + n.h / 2 > f.y &&
+            n.y + n.h / 2 < f.y + f.h,
+        )
+        .sort((a, b) => (lay.mode === "row" ? a.x - b.x : a.y - b.y));
+      if (kids.length === 0) continue;
+      let cursor = (lay.mode === "row" ? f.x : f.y) + pad;
+      const moved = new Map<string, { x?: number; y?: number }>();
+      for (const k of kids) {
+        if (lay.mode === "row") {
+          const y = f.y + (f.h - k.h) / 2;
+          if (Math.abs(k.x - cursor) > 0.5 || Math.abs(k.y - y) > 0.5)
+            moved.set(k.id, { x: cursor, y });
+          cursor += k.w + gap;
+        } else {
+          const x = f.x + (f.w - k.w) / 2;
+          if (Math.abs(k.x - x) > 0.5 || Math.abs(k.y - cursor) > 0.5)
+            moved.set(k.id, { x, y: cursor });
+          cursor += k.h + gap;
+        }
+      }
+      if (moved.size > 0) {
+        changed = true;
+        nodes = nodes.map((n) =>
+          moved.has(n.id) ? { ...n, ...moved.get(n.id) } : n,
+        );
+      }
+    }
+    return nodes === p.nodes ? p : { ...p, nodes };
+  });
+  return changed ? { ...doc, pages } : doc;
 }
 
 /** Fit the page's content into a viewport of the given size. */

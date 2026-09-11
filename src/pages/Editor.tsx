@@ -23,13 +23,22 @@ import {
   DEFAULT_FRAME_PRESETS,
   type FramePreset,
 } from "@/lib/framePresets";
-import { renderDoc, type SnapGuide } from "@/lib/render";
+import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
 import { buildTemplate } from "@/lib/templates";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -102,6 +111,19 @@ import {
   Type,
   Undo2,
   User as UserIcon,
+} from "lucide-react";
+import {
+  Command as CommandIcon,
+  Combine,
+  Diff,
+  Frame as FrameIcon,
+  Grid3x3,
+  Palette,
+  SquareDashed,
+  SquareStack,
+  Rows3,
+  Columns3,
+  WrapText,
 } from "lucide-react";
 
 /* ---------- Small helpers ---------- */
@@ -438,6 +460,302 @@ function CanvasContextMenu({
   );
 }
 
+/* ---------- Figma-style command palette (⌘K) ---------- */
+
+function CommandPalette({
+  open,
+  onOpenChange,
+  actions,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  actions: {
+    exportPng: () => void;
+    exportCss: () => void;
+    exportJson: () => void;
+    saveVersion: () => void;
+    present: () => void;
+    share: () => void;
+  };
+}) {
+  const selectedIds = useEditor((s) => s.selectedIds);
+  const run = (fn: () => void) => {
+    fn();
+    onOpenChange(false);
+  };
+  const s = () => useEditor.getState();
+  const tools: { t: Tool; icon: typeof Square; label: string; key: string }[] = [
+    { t: "select", icon: MousePointer2, label: "Move", key: "V" },
+    { t: "hand", icon: Move, label: "Hand", key: "H" },
+    { t: "frame", icon: Frame, label: "Frame", key: "F" },
+    { t: "rect", icon: Square, label: "Rectangle", key: "R" },
+    { t: "ellipse", icon: Circle, label: "Ellipse", key: "O" },
+    { t: "line", icon: Minus, label: "Line", key: "L" },
+    { t: "arrow", icon: ArrowUpRight, label: "Arrow", key: "A" },
+    { t: "polygon", icon: Pentagon, label: "Polygon", key: "P" },
+    { t: "text", icon: Type, label: "Text", key: "T" },
+    { t: "image", icon: ImageIcon, label: "Image", key: "I" },
+    { t: "comment", icon: MessageCircle, label: "Comment", key: "C" },
+  ];
+  const canBoolean = selectedIds.length >= 2;
+  return (
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="DesignBox commands"
+      description="Search tools, edits, views, and file actions"
+    >
+      <CommandInput placeholder="Type a command or search…" />
+      <CommandList>
+        <CommandEmpty>No matching commands.</CommandEmpty>
+        <CommandGroup heading="Tools">
+          {tools.map(({ t, icon: Icon, label, key }) => (
+            <CommandItem key={t} onSelect={() => run(() => s().setTool(t))}>
+              <Icon className="size-4" />
+              {label}
+              <CommandShortcut>{key}</CommandShortcut>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        <CommandGroup heading="Edit">
+          <CommandItem onSelect={() => run(() => s().undo())}>
+            <Undo2 className="size-4" /> Undo
+            <CommandShortcut>⌘Z</CommandShortcut>
+          </CommandItem>
+          <CommandItem onSelect={() => run(() => s().redo())}>
+            <Redo2 className="size-4" /> Redo
+            <CommandShortcut>⇧⌘Z</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length === 0}
+            onSelect={() => run(() => s().duplicateNodes(selectedIds))}
+          >
+            <Copy className="size-4" /> Duplicate
+            <CommandShortcut>⌘D</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length === 0}
+            onSelect={() => run(() => s().deleteNodes(selectedIds))}
+          >
+            <Trash2 className="size-4" /> Delete selection
+            <CommandShortcut>⌫</CommandShortcut>
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="Arrange">
+          <CommandItem
+            disabled={selectedIds.length < 2}
+            onSelect={() => run(() => s().booleanNodes(selectedIds, "union"))}
+          >
+            <Combine className="size-4" /> Boolean union
+          </CommandItem>
+          <CommandItem
+            disabled={!canBoolean}
+            onSelect={() => run(() => s().booleanNodes(selectedIds, "subtract"))}
+          >
+            <Diff className="size-4" /> Boolean subtract
+          </CommandItem>
+          <CommandItem
+            disabled={!canBoolean}
+            onSelect={() =>
+              run(() => s().booleanNodes(selectedIds, "intersect"))
+            }
+          >
+            <SquareStack className="size-4" /> Boolean intersect
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length < 2}
+            onSelect={() => run(() => s().groupNodes(selectedIds))}
+          >
+            <Boxes className="size-4" /> Group
+            <CommandShortcut>⌘G</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length === 0}
+            onSelect={() =>
+              run(() => selectedIds.forEach((id) => s().reorder(id, "front")))
+            }
+          >
+            <ArrowUp className="size-4" /> Bring to front
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length === 0}
+            onSelect={() =>
+              run(() => selectedIds.forEach((id) => s().reorder(id, "back")))
+            }
+          >
+            <ArrowDown className="size-4" /> Send to back
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length < 2}
+            onSelect={() =>
+              run(() => s().alignNodes(selectedIds, "hcenter"))
+            }
+          >
+            <AlignCenterVertical className="size-4" /> Align horizontal centers
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length < 2}
+            onSelect={() => s().distributeNodes(selectedIds, "h")}
+          >
+            <AlignHorizontalDistributeCenter className="size-4" /> Distribute
+            horizontally
+          </CommandItem>
+          <CommandItem
+            disabled={selectedIds.length === 0}
+            onSelect={() => run(() => s().flipNodes(selectedIds, "h"))}
+          >
+            <FlipHorizontal2 className="size-4" /> Flip horizontal
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="View">
+          <CommandItem
+            onSelect={() =>
+              run(() => {
+                const st = s();
+                st.setViewport(1, st.panX, st.panY);
+              })
+            }
+          >
+            <Scan className="size-4" /> Zoom to 100%
+            <CommandShortcut>0</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            onSelect={() =>
+              run(() => {
+                // Mirror the ⇧1 shortcut: fit selection or whole page.
+                const st = s();
+                if (st.selectedIds.length > 0) {
+                  const page = activePage(st.doc);
+                  const nodes = page.nodes.filter((n) =>
+                    st.selectedIds.includes(n.id),
+                  );
+                  const b = unionBounds(nodes);
+                  const el = document.querySelector("canvas");
+                  if (b && el) {
+                    const pad = 80;
+                    const z = Math.min(
+                      8,
+                      Math.max(
+                        0.05,
+                        Math.min(
+                          (el.clientWidth - pad * 2) / Math.max(b.w, 1),
+                          (el.clientHeight - pad * 2) / Math.max(b.h, 1),
+                        ),
+                      ),
+                    );
+                    st.setViewport(
+                      z,
+                      el.clientWidth / 2 - (b.x + b.w / 2) * z,
+                      el.clientHeight / 2 - (b.y + b.h / 2) * z,
+                    );
+                    return;
+                  }
+                }
+              })
+            }
+          >
+            <Scan className="size-4" /> Zoom to selection
+            <CommandShortcut>⇧1</CommandShortcut>
+          </CommandItem>
+        </CommandGroup>
+        <CommandGroup heading="File">
+          <CommandItem onSelect={() => run(actions.saveVersion)}>
+            <History className="size-4" /> Save version
+            <CommandShortcut>⌘S</CommandShortcut>
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.present)}>
+            <Eye className="size-4" /> Present
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.share)}>
+            <Share2 className="size-4" /> Share…
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.exportPng)}>
+            <Download className="size-4" /> Export PNG @2x
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.exportCss)}>
+            <Download className="size-4" /> Export CSS
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.exportJson)}>
+            <Download className="size-4" /> Export DesignBox JSON
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
+  );
+}
+
+/* ---------- Canvas rulers ---------- */
+
+function Rulers({
+  zoom,
+  panX,
+  panY,
+}: {
+  zoom: number;
+  panX: number;
+  panY: number;
+}) {
+  const topRef = useRef<HTMLCanvasElement | null>(null);
+  const leftRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const draw = (canvas: HTMLCanvasElement | null, horizontal: boolean) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(18,18,22,0.92)";
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(255,255,255,0.28)";
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.font = "9px ui-sans-serif, system-ui, sans-serif";
+      ctx.lineWidth = 1;
+      const step = 100; // page units between major ticks
+      const origin = horizontal ? panX : panY;
+      const span = horizontal ? w : h;
+      const start = Math.floor(-origin / zoom / step) * step;
+      const end = start + span / zoom + step;
+      for (let v = start; v <= end; v += step) {
+        const p = v * zoom + origin;
+        ctx.beginPath();
+        if (horizontal) {
+          ctx.moveTo(p + 0.5, h - 8);
+          ctx.lineTo(p + 0.5, h);
+          ctx.fillText(String(v), p + 3, h - 11);
+        } else {
+          ctx.moveTo(w - 8, p + 0.5);
+          ctx.lineTo(w, p + 0.5);
+          ctx.save();
+          ctx.translate(3, p - 3);
+          ctx.rotate(-Math.PI / 2);
+          ctx.fillText(String(v), 0, 0);
+          ctx.restore();
+        }
+        ctx.stroke();
+      }
+    };
+    draw(topRef.current, true);
+    draw(leftRef.current, false);
+  }, [zoom, panX, panY]);
+  return (
+    <>
+      <canvas
+        ref={topRef}
+        className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-5 w-full"
+      />
+      <canvas
+        ref={leftRef}
+        className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-5"
+      />
+    </>
+  );
+}
+
 /* ---------- Editor page ---------- */
 
 export default function Editor() {
@@ -494,6 +812,7 @@ export default function Editor() {
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [outlineMode, setOutlineMode] = useState(false);
   const [marquee, setMarquee] = useState<Bounds | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -1118,6 +1437,18 @@ export default function Editor() {
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" });
+        return;
+      }
+      // Command palette (⌘K)
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      // Boolean operations (⌘⇧U / ⌘⇧S-ish Figma habits: ⌘⇧U union)
+      if (mod && e.shiftKey && e.key.toLowerCase() === "u") {
+        e.preventDefault();
+        state.booleanNodes(state.selectedIds, "union");
         return;
       }
       // Figma-style clipboard: ⌘C / ⌘X / ⌘V
