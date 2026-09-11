@@ -32,6 +32,8 @@ export interface RenderOptions {
   drawPreview?: DesignNode | null;
   selectionColor?: string;
   snapGuides?: SnapGuide[]; // smart alignment guides to paint
+  outlineMode?: boolean; // Figma-style outlines-only rendering
+  marquee?: Bounds | null; // rubber-band selection rectangle
 }
 
 function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
@@ -77,11 +79,23 @@ function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
 // Simple image cache so we don't re-decode data URLs every frame.
 const imgCache = new Map<string, HTMLImageElement>();
 
+/** Apply mirror transforms around the node's own center (Figma-style flip). */
+function applyFlip(ctx: CanvasRenderingContext2D, n: DesignNode) {
+  if (!n.flipX && !n.flipY) return;
+  const b = nodeBounds(n);
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  ctx.translate(cx, cy);
+  ctx.scale(n.flipX ? -1 : 1, n.flipY ? -1 : 1);
+  ctx.translate(-cx, -cy);
+}
+
 function paintNode(
   ctx: CanvasRenderingContext2D,
   n: DesignNode,
   t: Transform,
   scale: number,
+  outline = false,
 ) {
   if (n.hidden) return;
   ctx.save();
@@ -105,7 +119,12 @@ function paintNode(
     }
     ctx.translate(t.panX, t.panY);
     ctx.scale(t.zoom, t.zoom);
-    if (img.complete && img.naturalWidth > 0) {
+    applyFlip(ctx, n);
+    if (outline) {
+      ctx.strokeStyle = "#e4e4e7";
+      ctx.lineWidth = Math.max(1 / scale, 0.5);
+      ctx.strokeRect(n.x, n.y, n.w, n.h);
+    } else if (img.complete && img.naturalWidth > 0) {
       ctx.drawImage(img, n.x, n.y, n.w, n.h);
     } else {
       ctx.fillStyle = "#27272a";
@@ -128,6 +147,14 @@ function paintNode(
           : n.x;
     const lines = (n.text ?? "").split("\n");
     ctx.font = `${n.fontWeight ?? 500} ${fontSize * t.zoom}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    if (outline) {
+      // Outlines mode: show a light box for text layers.
+      ctx.strokeStyle = "#e4e4e7";
+      ctx.lineWidth = Math.max(1 / scale, 0.5);
+      ctx.strokeRect(n.x, n.y, n.w, n.h);
+      ctx.restore();
+      return;
+    }
     lines.forEach((line, i) => {
       ctx.fillText(
         line,
@@ -141,16 +168,23 @@ function paintNode(
 
   ctx.translate(t.panX, t.panY);
   ctx.scale(t.zoom, t.zoom);
+  applyFlip(ctx, n);
   pathNode(ctx, n);
   if (n.type !== "line" && n.type !== "arrow") {
-    if (n.fill) {
-      ctx.fillStyle = n.fill;
-      ctx.fill();
-    }
-    if (n.stroke && n.strokeWidth > 0) {
-      ctx.strokeStyle = n.stroke;
-      ctx.lineWidth = Math.max(n.strokeWidth, 0.5 / scale);
+    if (outline) {
+      ctx.strokeStyle = n.fill ?? "#e4e4e7";
+      ctx.lineWidth = Math.max(1 / scale, 0.5);
       ctx.stroke();
+    } else {
+      if (n.fill) {
+        ctx.fillStyle = n.fill;
+        ctx.fill();
+      }
+      if (n.stroke && n.strokeWidth > 0) {
+        ctx.strokeStyle = n.stroke;
+        ctx.lineWidth = Math.max(n.strokeWidth, 0.5 / scale);
+        ctx.stroke();
+      }
     }
   } else {
     ctx.strokeStyle = n.stroke ?? n.fill ?? "#8b5cf6";
@@ -245,6 +279,7 @@ export function renderDoc(
   }
 
   const scale = t.zoom * dpr;
+  const outline = opts.outlineMode === true;
   for (const n of page.nodes) {
     // Smart alignment guides (painted under content chrome).
     if (opts.snapGuides && opts.snapGuides.length > 0) {
@@ -268,7 +303,7 @@ export function renderDoc(
     }
 
     if ((n.rotation ?? 0) === 0) {
-      paintNode(ctx, n, t, scale);
+      paintNode(ctx, n, t, scale, outline);
       continue;
     }
     // Rotated nodes: rotate about the node's own center in screen space.
@@ -280,11 +315,27 @@ export function renderDoc(
     ctx.rotate(((n.rotation ?? 0) * Math.PI) / 180);
     ctx.translate(-(b.w * t.zoom) / 2, -(b.h * t.zoom) / 2);
     const local: Transform = { zoom: t.zoom, panX: 0, panY: 0 };
-    paintNode(ctx, n, local, scale);
+    paintNode(ctx, n, local, scale, outline);
     ctx.restore();
   }
 
-  if (opts.drawPreview) paintNode(ctx, opts.drawPreview, t, scale);
+  if (opts.drawPreview) paintNode(ctx, opts.drawPreview, t, scale, outline);
+
+  // Rubber-band marquee rectangle (painted above content, below chrome).
+  if (opts.marquee) {
+    const m = opts.marquee;
+    const x = m.x * t.zoom + t.panX;
+    const y = m.y * t.zoom + t.panY;
+    const w = m.w * t.zoom;
+    const h = m.h * t.zoom;
+    ctx.save();
+    ctx.fillStyle = "rgba(139, 92, 246, 0.12)";
+    ctx.strokeStyle = "#8b5cf6";
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.restore();
+  }
 
   if (opts.showChrome) {
     const selColor = opts.selectionColor ?? "#8b5cf6";
@@ -319,6 +370,32 @@ export function renderDoc(
       if (n) {
         const b: HandleBounds = { ...nodeBounds(n), rotation: n.rotation };
         paintHandles(ctx, b, t, selColor, true);
+        // Figma-style rotate handle hovering just above the top-center handle.
+        if ((opts.selection ?? []).length === 1 && !n.locked) {
+          const rot = ((n.rotation ?? 0) * Math.PI) / 180;
+          // Top-center local offset rotated about the node's center.
+          const offX = (b.h / 2) * Math.sin(rot);
+          const offY = -(b.h / 2) * Math.cos(rot);
+          const cxp = (b.x + b.w / 2) * t.zoom + t.panX;
+          const cyp = (b.y + b.h / 2) * t.zoom + t.panY;
+          const ex = cxp + offX * t.zoom;
+          const ey = cyp + offY * t.zoom;
+          const hx = cxp + offX * t.zoom * 1.6;
+          const hy = cyp + offY * t.zoom * 1.6;
+          ctx.save();
+          ctx.strokeStyle = selColor;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(ex, ey);
+          ctx.lineTo(hx, hy);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
       }
     }
   }

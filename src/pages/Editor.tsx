@@ -19,6 +19,10 @@ import {
   type DesignDoc,
   type DesignNode,
 } from "@/lib/geo";
+import {
+  DEFAULT_FRAME_PRESETS,
+  type FramePreset,
+} from "@/lib/framePresets";
 import { renderDoc, type SnapGuide } from "@/lib/render";
 import { buildTemplate } from "@/lib/templates";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
@@ -55,11 +59,23 @@ import {
   ArrowUp,
   ArrowUpRight,
   Boxes,
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  AlignStartHorizontal,
+  AlignStartVertical,
   Circle,
+  Clipboard,
+  ClipboardPaste,
   Copy,
   Download,
   Eye,
   EyeOff,
+  FlipHorizontal2,
+  FlipVertical2,
   Frame,
   Globe,
   History,
@@ -73,10 +89,12 @@ import {
   MousePointer2,
   Move,
   MoveVertical,
+  Paintbrush,
   Pentagon,
   Plus,
   Redo2,
   Ruler,
+  Scan,
   Share2,
   Sparkles,
   Square,
@@ -178,6 +196,8 @@ type Gesture =
   | { kind: "pan"; startX: number; startY: number; panX: number; panY: number }
   | {
       kind: "move";
+      startX: number;
+      startY: number;
       lastX: number;
       lastY: number;
       ids: string[];
@@ -191,8 +211,26 @@ type Gesture =
       startX: number;
       startY: number;
       pushed: boolean;
+      /** Shift held: keep the original aspect ratio. */
+      keepAspect: boolean;
     }
-  | { kind: "draw"; originX: number; originY: number; type: DesignNode["type"] };
+  | { kind: "draw"; originX: number; originY: number; type: DesignNode["type"] }
+  | {
+      kind: "marquee";
+      originX: number;
+      originY: number;
+      additive: boolean;
+      baseIds: string[];
+    }
+  | {
+      kind: "rotate";
+      id: string;
+      centerX: number;
+      centerY: number;
+      startAngle: number;
+      startRotation: number;
+      pushed: boolean;
+    };
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 
@@ -250,6 +288,8 @@ export default function Editor() {
   const [showRulers, setShowRulers] = useState(false);
   const [leftTab, setLeftTab] = useState<"layers" | "assets">("layers");
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const [outlineMode, setOutlineMode] = useState(false);
+  const [marquee, setMarquee] = useState<Bounds | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -258,6 +298,14 @@ export default function Editor() {
   const gestureRef = useRef<Gesture | null>(null);
   const mouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastCursorSentRef = useRef<number>(0);
+  /** Space held → temporary hand/pan mode (Figma convention). */
+  const spaceRef = useRef(false);
+  /** Screen-space position for context menus and paste-at-cursor. */
+  const [contextMenu, setContextMenu] = useState<{
+    sx: number;
+    sy: number;
+    page: { x: number; y: number };
+  } | null>(null);
 
   const [previewNode, setPreviewNode] = useState<DesignNode | null>(null);
   const [editingText, setEditingText] = useState<{
@@ -370,6 +418,31 @@ export default function Editor() {
     return ids;
   }, [presence, user]);
 
+  /* ----- Space-key pan tracking ----- */
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        const target = e.target as HTMLElement;
+        if (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable
+        )
+          return;
+        spaceRef.current = true;
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") spaceRef.current = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -392,8 +465,10 @@ export default function Editor() {
       drawPreview: previewNode,
       selectionColor: other?.color ?? "#8b5cf6",
       snapGuides,
+      outlineMode,
+      marquee,
     });
-  }, [presence, user, presenting, previewNode, remoteSelection, snapGuides, store]);
+  }, [presence, user, presenting, previewNode, remoteSelection, snapGuides, outlineMode, marquee, store]);
 
   useEffect(() => {
     render();
@@ -421,6 +496,22 @@ export default function Editor() {
     if (selectedIds.length !== 1) return null;
     const node = activePage(doc).nodes.find((n) => n.id === selectedIds[0]);
     if (!node || node.locked) return null;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    // Rotate handle: a circle 24px above the node's top-center, following
+    // the node's rotation so it stays attached while spinning.
+    {
+      const b = nodeBounds(node);
+      const rot = ((node.rotation ?? 0) * Math.PI) / 180;
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const offX = (b.h / 2) * Math.sin(rot) * zoom * 1.6;
+      const offY = -(b.h / 2) * Math.cos(rot) * zoom * 1.6;
+      const hx = cx * zoom + panX + offX;
+      const hy = cy * zoom + panY + offY;
+      if (Math.abs(sx - hx) <= 8 && Math.abs(sy - hy) <= 8) return "rotate";
+    }
     const rect = canvasRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
@@ -452,7 +543,7 @@ export default function Editor() {
     const page = toPage(e);
     const state = store.getState();
 
-    if (tool === "hand" || e.button === 1 || e.altKey) {
+    if (tool === "hand" || e.button === 1 || spaceRef.current) {
       gestureRef.current = {
         kind: "pan",
         startX: e.clientX,
@@ -468,11 +559,32 @@ export default function Editor() {
       return;
     }
 
-    // Resize handles take priority over selection when exactly one node is selected.
-    if (tool === "select") {
+    // Resize / rotate handles take priority when exactly one node is selected.
+    if (tool === "select" && selectedIds.length === 1) {
       const handle = hitHandle(e);
+      if (handle === "rotate") {
+        const node = activePage(doc).nodes.find(
+          (n) => n.id === selectedIds[0],
+        )!;
+        const b = nodeBounds(node);
+        gestureRef.current = {
+          kind: "rotate",
+          id: node.id,
+          centerX: b.x + b.w / 2,
+          centerY: b.y + b.h / 2,
+          startAngle: Math.atan2(
+            page.y - (b.y + b.h / 2),
+            page.x - (b.x + b.w / 2),
+          ),
+          startRotation: node.rotation ?? 0,
+          pushed: false,
+        };
+        return;
+      }
       if (handle) {
-        const node = activePage(doc).nodes.find((n) => n.id === selectedIds[0])!;
+        const node = activePage(doc).nodes.find(
+          (n) => n.id === selectedIds[0],
+        )!;
         gestureRef.current = {
           kind: "resize",
           handle,
@@ -481,6 +593,7 @@ export default function Editor() {
           startX: page.x,
           startY: page.y,
           pushed: false,
+          keepAspect: e.shiftKey,
         };
         return;
       }
@@ -489,27 +602,35 @@ export default function Editor() {
     if (tool === "select") {
       const hit = hitTest(state.doc, page.x, page.y);
       if (hit && !hit.locked) {
-        const ids = selectedIds.includes(hit.id)
+        let ids = selectedIds.includes(hit.id)
           ? selectedIds
           : e.shiftKey
             ? [...selectedIds, hit.id]
             : [hit.id];
+        // Alt-drag duplicates the selection and drags the copies (Figma-style).
+        if (e.altKey) {
+          state.duplicateNodes(ids);
+          ids = store.getState().selectedIds;
+        }
         state.select(ids);
         gestureRef.current = {
           kind: "move",
+          startX: page.x,
+          startY: page.y,
           lastX: page.x,
           lastY: page.y,
           ids,
           pushed: false,
         };
       } else if (!hit) {
+        // Left-drag on empty canvas rubber-band selects (marquee).
         state.select([]);
         gestureRef.current = {
-          kind: "pan",
-          startX: e.clientX,
-          startY: e.clientY,
-          panX,
-          panY,
+          kind: "marquee",
+          originX: page.x,
+          originY: page.y,
+          additive: e.shiftKey,
+          baseIds: e.shiftKey ? [...selectedIds] : [],
         };
       }
       return;
@@ -581,9 +702,15 @@ export default function Editor() {
         state.pushHistory();
         g.pushed = true;
       }
+      // Shift constrains dragging to a single axis (Figma behavior).
+      const totalDx = page.x - g.startX;
+      const totalDy = page.y - g.startY;
+      const constrain = e.shiftKey;
+      const effectiveDx = constrain && Math.abs(totalDy) > Math.abs(totalDx) ? 0 : dx;
+      const effectiveDy = constrain && Math.abs(totalDx) >= Math.abs(totalDy) ? 0 : dy;
       g.lastX = page.x;
       g.lastY = page.y;
-      state.moveNodesLive(g.ids, dx, dy);
+      state.moveNodesLive(g.ids, effectiveDx, effectiveDy);
       // Smart snapping against other nodes' edges/centers.
       const pageData = activePage(state.doc);
       const moving = pageData.nodes.filter((n) => g.ids.includes(n.id));
@@ -643,7 +770,64 @@ export default function Editor() {
         h = Math.max(2, b.h - dy);
         y = b.y + (b.h - h);
       }
+      // Shift keeps the original aspect ratio (Figma behavior).
+      if (g.keepAspect && b.w > 0 && b.h > 0) {
+        const ratio = b.w / b.h;
+        if (g.handle === "e" || g.handle === "w") {
+          h = Math.max(2, w / ratio);
+          y = b.y + (b.h - h) / 2;
+        } else if (g.handle === "n" || g.handle === "s") {
+          w = Math.max(2, h * ratio);
+          x = b.x + (b.w - w) / 2;
+        } else {
+          if (w / ratio > h) h = Math.max(2, w / ratio);
+          else w = Math.max(2, h * ratio);
+          if (g.handle.includes("w")) x = b.x + (b.w - w);
+          if (g.handle.includes("n")) y = b.y + (b.h - h);
+        }
+      }
       state.updateNodesLive([g.id], { x, y, w, h });
+      return;
+    }
+
+    if (g.kind === "marquee") {
+      const rect: Bounds = {
+        x: Math.min(g.originX, page.x),
+        y: Math.min(g.originY, page.y),
+        w: Math.abs(page.x - g.originX),
+        h: Math.abs(page.y - g.originY),
+      };
+      setMarquee(rect);
+      const hits = activePage(state.doc).nodes
+        .filter(
+          (n) =>
+            !n.hidden &&
+            !n.locked &&
+            n.type !== "group" &&
+            n.x < rect.x + rect.w &&
+            n.x + n.w > rect.x &&
+            n.y < rect.y + rect.h &&
+            n.y + n.h > rect.y,
+        )
+        .map((n) => n.id);
+      const ids = g.additive
+        ? [...new Set([...g.baseIds, ...hits])]
+        : hits;
+      state.select(ids);
+      return;
+    }
+
+    if (g.kind === "rotate") {
+      if (!g.pushed) {
+        state.pushHistory();
+        g.pushed = true;
+      }
+      const angle = Math.atan2(page.y - g.centerY, page.x - g.centerX);
+      let delta =
+        ((angle - g.startAngle) * 180) / Math.PI + g.startRotation;
+      if (e.shiftKey) delta = Math.round(delta / 15) * 15; // 15° snapping
+      delta = ((delta % 360) + 360) % 360;
+      state.updateNodesLive([g.id], { rotation: Math.round(delta * 10) / 10 });
       return;
     }
 
@@ -665,6 +849,7 @@ export default function Editor() {
     const g = gestureRef.current;
     gestureRef.current = null;
     setSnapGuides([]);
+    setMarquee(null);
     if (g?.kind === "draw" && previewNode) {
       const tooSmall = Math.abs(previewNode.w) < 4 && Math.abs(previewNode.h) < 4;
       if (!tooSmall) store.getState().addNode(previewNode);
@@ -731,6 +916,64 @@ export default function Editor() {
         snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" });
         return;
       }
+      // Figma-style clipboard: ⌘C / ⌘X / ⌘V
+      if (mod && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        state.copyNodes(state.selectedIds);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        state.cutNodes(state.selectedIds);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        const at =
+          mouseRef.current.x || mouseRef.current.y
+            ? { x: mouseRef.current.x, y: mouseRef.current.y }
+            : undefined;
+        state.pasteNodes(at);
+        return;
+      }
+      // Layer order: [ / ] send backward / bring forward (Figma convention)
+      if (key === "[") {
+        for (const id of state.selectedIds)
+          state.reorder(id, "backward");
+        return;
+      }
+      if (key === "]") {
+        for (const id of state.selectedIds) state.reorder(id, "forward");
+        return;
+      }
+      // Hide / lock the selection (⌘⇧H / ⌘⇧L)
+      if (mod && e.shiftKey && key === "h") {
+        e.preventDefault();
+        const page = activePage(state.doc);
+        const anyVisible = page.nodes.some(
+          (n) => state.selectedIds.includes(n.id) && !n.hidden,
+        );
+        state.updateNodesLive(
+          state.selectedIds,
+          { hidden: anyVisible },
+        );
+        return;
+      }
+      if (mod && e.shiftKey && key === "l") {
+        e.preventDefault();
+        const page = activePage(state.doc);
+        const anyUnlocked = page.nodes.some(
+          (n) => state.selectedIds.includes(n.id) && !n.locked,
+        );
+        state.updateNodesLive(state.selectedIds, { locked: anyUnlocked });
+        return;
+      }
+      // Outline mode toggle (⌘⇧O)
+      if (mod && e.shiftKey && key === "o") {
+        e.preventDefault();
+        setOutlineMode((v) => !v);
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (state.selectedIds.length > 0) {
           e.preventDefault();
@@ -743,7 +986,42 @@ export default function Editor() {
         state.select([]);
         setPresenting(false);
         setDraftComment(null);
+        setContextMenu(null);
         return;
+      }
+      // Zoom to selection (Shift+1): fit the current selection.
+      if (e.shiftKey && key === "!") {
+        const el = wrapRef.current;
+        if (el && state.selectedIds.length > 0) {
+          const nodes = activePage(state.doc).nodes.filter((n) =>
+            state.selectedIds.includes(n.id),
+          );
+          const b = unionBounds(nodes);
+          if (b) {
+            const pad = 80;
+            const z = Math.min(
+              8,
+              Math.max(
+                0.05,
+                Math.min(
+                  (el.clientWidth - pad * 2) / Math.max(b.w, 1),
+                  (el.clientHeight - pad * 2) / Math.max(b.h, 1),
+                ),
+              ),
+            );
+            state.setViewport(
+              z,
+              el.clientWidth / 2 - (b.x + b.w / 2) * z,
+              el.clientHeight / 2 - (b.y + b.h / 2) * z,
+            );
+          }
+          return;
+        }
+        const el2 = wrapRef.current;
+        if (el2) {
+          const t = fitTransform(state.doc, el2.clientWidth, el2.clientHeight);
+          state.setViewport(t.zoom, t.panX, t.panY);
+        }
       }
       const key = e.key.toLowerCase();
       const toolMap: Record<string, Tool> = {
@@ -761,13 +1039,6 @@ export default function Editor() {
       };
       if (toolMap[key]) state.setTool(toolMap[key]);
       if (key === "0") state.setViewport(1, state.panX, state.panY);
-      if (e.shiftKey && key === "!") {
-        const el = wrapRef.current;
-        if (el) {
-          const t = fitTransform(state.doc, el.clientWidth, el.clientHeight);
-          state.setViewport(t.zoom, t.panX, t.panY);
-        }
-      }
       // Group / ungroup (⌘G / ⇧⌘G)
       if (mod && key === "g") {
         e.preventDefault();
@@ -1422,7 +1693,7 @@ export default function Editor() {
               className="absolute inset-0 h-full w-full touch-none select-none"
               style={{
                 cursor:
-                  tool === "hand"
+                  spaceRef.current || tool === "hand"
                     ? "grab"
                     : [
                           "frame",

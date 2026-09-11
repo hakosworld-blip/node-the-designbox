@@ -13,6 +13,7 @@ import {
   nodeBounds,
   uid,
   unionBounds,
+  type Bounds,
   type DesignDoc,
   type DesignNode,
 } from "./geo";
@@ -69,7 +70,27 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
   markSaved: () => void;
+
+  // Figma-style clipboard
+  copyNodes: (ids: string[]) => void;
+  cutNodes: (ids: string[]) => void;
+  pasteNodes: (at?: { x: number; y: number }) => void;
+  hasClipboard: () => boolean;
+  /** Nudge all future paste offsets past the stored paste origin. */
+  setClipboardOrigin: (x: number, y: number) => void;
+  // Figma-style alignment
+  alignNodes: (
+    ids: string[],
+    mode: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom",
+  ) => void;
+  distributeNodes: (ids: string[], axis: "h" | "v") => void;
+  rotateNodes: (ids: string[], delta: number) => void;
+  flipNodes: (ids: string[], axis: "h" | "v") => void;
 }
+
+/** Clipboard lives outside React/store state so it never lands in history. */
+let clipboardNodes: DesignNode[] = [];
+let clipboardOrigin: { x: number; y: number } = { x: 0, y: 0 };
 
 function cloneDoc(doc: DesignDoc): DesignDoc {
   return JSON.parse(JSON.stringify(doc)) as DesignDoc;
@@ -473,4 +494,182 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   markSaved: () => set({ dirty: false }),
+
+  // ----- Figma-style clipboard -----
+
+  copyNodes: (ids) => {
+    const { doc } = get();
+    const page = activePage(doc);
+    const nodes = page.nodes.filter((n) => ids.includes(n.id));
+    if (nodes.length === 0) return;
+    clipboardNodes = JSON.parse(JSON.stringify(nodes)) as DesignNode[];
+    const b = unionBounds(nodes);
+    clipboardOrigin = { x: b?.x ?? 0, y: b?.y ?? 0 };
+  },
+
+  cutNodes: (ids) => {
+    get().copyNodes(ids);
+    if (clipboardNodes.length > 0) get().deleteNodes(ids);
+  },
+
+  pasteNodes: (at) => {
+    if (clipboardNodes.length === 0) return;
+    const { doc, past, selectedIds } = get();
+    const pasted = clipboardNodes.map((n) => ({
+      ...JSON.parse(JSON.stringify(n)),
+      id: uid(n.type[0]),
+    }));
+    let dx: number;
+    let dy: number;
+    if (at) {
+      dx = at.x - clipboardOrigin.x;
+      dy = at.y - clipboardOrigin.y;
+      clipboardOrigin = at;
+    } else {
+      // Paste slightly offset, Figma-style, on repeat pastes.
+      dx = 24;
+      dy = 24;
+      clipboardOrigin = { x: clipboardOrigin.x + dx, y: clipboardOrigin.y + dy };
+    }
+    for (const n of pasted) {
+      n.x += dx;
+      n.y += dy;
+    }
+    set({
+      doc: mapNodes(doc, (nodes) => [...nodes, ...pasted]),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+      selectedIds: pasted.map((n) => n.id),
+    });
+  },
+
+  hasClipboard: () => clipboardNodes.length > 0,
+
+  setClipboardOrigin: (x, y) => {
+    clipboardOrigin = { x, y };
+  },
+
+  // ----- Figma-style alignment -----
+
+  alignNodes: (ids, mode) => {
+    const { doc, past } = get();
+    const page = activePage(doc);
+    const nodes = page.nodes.filter((n) => ids.includes(n.id));
+    if (nodes.length === 0) return;
+    const b = unionBounds(nodes);
+    if (!b) return;
+    const patches = new Map<string, Partial<DesignNode>>();
+    for (const n of nodes) {
+      const nb = nodeBounds(n);
+      let x = n.x;
+      let y = n.y;
+      if (mode === "left") x += b.x - nb.x;
+      else if (mode === "right") x += b.x + b.w - (nb.x + nb.w);
+      else if (mode === "hcenter") x += b.x + b.w / 2 - (nb.x + nb.w / 2);
+      else if (mode === "top") y += b.y - nb.y;
+      else if (mode === "bottom") y += b.y + b.h - (nb.y + nb.h);
+      else if (mode === "vcenter") y += b.y + b.h / 2 - (nb.y + nb.h / 2);
+      if (x !== n.x || y !== n.y) patches.set(n.id, { x, y });
+    }
+    if (patches.size === 0) return;
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) =>
+          patches.has(n.id) ? { ...n, ...patches.get(n.id) } : n,
+        ),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  distributeNodes: (ids, axis) => {
+    const { doc, past } = get();
+    if (ids.length < 3) return;
+    const page = activePage(doc);
+    const nodes = page.nodes.filter((n) => ids.includes(n.id));
+    if (nodes.length < 3) return;
+    const sorted = [...nodes].sort((a, b) =>
+      axis === "h" ? a.x - b.x : a.y - b.y,
+    );
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const total =
+      axis === "h"
+        ? last.x + last.w - first.x
+        : last.y + last.h - first.y;
+    const content = sorted.reduce(
+      (sum, n) => sum + (axis === "h" ? n.w : n.h),
+      0,
+    );
+    const gap = (total - content) / (sorted.length - 1);
+    let cursor = axis === "h" ? first.x : first.y;
+    const patches = new Map<string, Partial<DesignNode>>();
+    for (const n of sorted) {
+      patches.set(n.id, axis === "h" ? { x: cursor } : { y: cursor });
+      cursor += (axis === "h" ? n.w : n.h) + gap;
+    }
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) =>
+          patches.has(n.id) ? { ...n, ...patches.get(n.id) } : n,
+        ),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  rotateNodes: (ids, delta) => {
+    const { doc, past } = get();
+    if (ids.length === 0) return;
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) =>
+          ids.includes(n.id)
+            ? { ...n, rotation: (((n.rotation ?? 0) + delta) % 360 + 360) % 360 }
+            : n,
+        ),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  flipNodes: (ids, axis) => {
+    const { doc, past } = get();
+    if (ids.length === 0) return;
+    const page = activePage(doc);
+    const selected = page.nodes.filter((n) => ids.includes(n.id));
+    const b = unionBounds(selected);
+    if (!b) return;
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) => {
+          if (!ids.includes(n.id)) return n;
+          if (axis === "h") {
+            // Mirror position around the selection's horizontal center and
+            // flip the node's own geometry in place.
+            return {
+              ...n,
+              x: 2 * (b.x + b.w / 2) - n.x - n.w,
+              flipX: !n.flipX,
+            };
+          }
+          return {
+            ...n,
+            y: 2 * (b.y + b.h / 2) - n.y - n.h,
+            flipY: !n.flipY,
+          };
+        }),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
 }));

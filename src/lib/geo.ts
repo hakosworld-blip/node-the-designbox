@@ -44,6 +44,9 @@ export interface DesignNode {
   blur?: number; // layer blur, 0 = off
   locked?: boolean;
   hidden?: boolean;
+  // Mirror flags (Figma-style flip). Render flips geometry in place.
+  flipX?: boolean;
+  flipY?: boolean;
   // Groups: child node ids in paint order (back to front).
   children?: string[];
   // Components / instances: every instance points at a component master node.
