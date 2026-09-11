@@ -1,7 +1,12 @@
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMutation, useQuery } from "convex/react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
+import type { DesignDoc } from "@/lib/geo";
+import { renderThumb } from "@/lib/thumb";
+import { buildTemplate } from "@/lib/templates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -28,18 +33,16 @@ import {
   FilePlus2,
   FolderPlus,
   Globe,
-  Home,
+  LayoutGrid,
   LogOut,
   MoreHorizontal,
+  PenLine,
   RotateCcw,
   Search,
   Smartphone,
   Star,
   Trash2,
-  LayoutGrid,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 
 type ViewTab = "recent" | "starred" | "trash";
 type TemplateKind = "blank" | "mobile" | "web";
@@ -60,22 +63,6 @@ interface FileRow {
   authorName?: string;
 }
 
-/** Deterministic pastel gradient so every file card is distinct and colorful. */
-const TILE_GRADIENTS = [
-  "from-violet-500/70 to-fuchsia-500/50",
-  "from-cyan-500/60 to-blue-500/50",
-  "from-emerald-500/60 to-teal-500/40",
-  "from-amber-400/60 to-orange-500/50",
-  "from-pink-500/60 to-rose-500/50",
-  "from-indigo-500/60 to-violet-500/50",
-];
-
-function tileGradient(name: string) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return TILE_GRADIENTS[Math.abs(h) % TILE_GRADIENTS.length];
-}
-
 function timeAgo(ts: number) {
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 60) return "just now";
@@ -88,27 +75,35 @@ function timeAgo(ts: number) {
   return new Date(ts).toLocaleDateString();
 }
 
-/** Minimal starter document — swapped for the shared template builder later. */
-function starterDoc(kind: TemplateKind) {
-  const pageId = `p_${Math.random().toString(36).slice(2, 9)}`;
-  const node = (i: number) => `n_${Math.random().toString(36).slice(2, 9)}${i}`;
-  const nodes: unknown[] = [];
-  if (kind === "mobile") {
-    nodes.push(
-      { id: node(1), type: "frame", name: "iPhone frame", x: 60, y: 60, w: 390, h: 844, fill: "#17171c", stroke: null, strokeWidth: 0, radius: 40, opacity: 1 },
-      { id: node(2), type: "text", name: "Title", x: 92, y: 116, w: 320, h: 36, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "Good morning, Ava", fontSize: 26, fontWeight: 700, align: "left", color: "#ffffff" },
-      { id: node(3), type: "rect", name: "Hero card", x: 92, y: 200, w: 326, h: 150, fill: "#8b5cf6", stroke: null, strokeWidth: 0, radius: 20, opacity: 1 },
-      { id: node(4), type: "text", name: "Hero title", x: 116, y: 224, w: 240, h: 26, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "Design sync", fontSize: 18, fontWeight: 700, align: "left", color: "#ffffff" },
+/** Canvas thumbnail that renders the file's real design doc. */
+function FileThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = 320 * dpr;
+    canvas.height = 180 * dpr;
+    ctx.scale(dpr, dpr);
+    renderThumb(ctx, doc ?? null, 320, 180);
+  }, [doc]);
+  if (!doc)
+    return (
+      <div className="flex h-[180px] items-center justify-center rounded-md bg-gradient-to-br from-violet-500/40 to-cyan-500/25">
+        <span className="text-3xl font-bold text-white/90">
+          {name.slice(0, 1).toUpperCase()}
+        </span>
+      </div>
     );
-  } else if (kind === "web") {
-    nodes.push(
-      { id: node(1), type: "frame", name: "Dashboard frame", x: 80, y: 80, w: 1120, h: 700, fill: "#17171c", stroke: null, strokeWidth: 0, radius: 16, opacity: 1 },
-      { id: node(2), type: "rect", name: "Sidebar", x: 80, y: 80, w: 220, h: 700, fill: "#1d1d23", stroke: null, strokeWidth: 0, radius: 16, opacity: 1 },
-      { id: node(3), type: "text", name: "Brand", x: 108, y: 112, w: 180, h: 26, fill: null, stroke: null, strokeWidth: 0, radius: 0, opacity: 1, text: "DesignBox", fontSize: 18, fontWeight: 700, align: "left", color: "#ffffff" },
-      { id: node(4), type: "rect", name: "KPI 1", x: 348, y: 208, w: 260, h: 120, fill: "#232329", stroke: null, strokeWidth: 0, radius: 14, opacity: 1 },
-    );
-  }
-  return { pages: [{ id: pageId, name: "Page 1", nodes }], activePageId: pageId, background: "#101012" };
+  return (
+    <canvas
+      ref={ref}
+      style={{ width: 320, height: 180 }}
+      className="h-[180px] w-full rounded-md"
+    />
+  );
 }
 
 export default function Dashboard() {
@@ -126,40 +121,54 @@ export default function Dashboard() {
   const setStarred = useMutation(api.files.setStarred);
   const publishFile = useMutation(api.files.publish);
   const unpublishFile = useMutation(api.files.unpublish);
+  const ensureWorkspace = useMutation(api.bootstrap.ensureUserWorkspace);
+  const updateProfile = useMutation(api.profile.updateProfile);
 
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [tab, setTab] = useState<ViewTab>("recent");
   const [search, setSearch] = useState("");
   const [newDialog, setNewDialog] = useState<null | "project" | "file">(null);
   const [newName, setNewName] = useState("");
   const [projectId, setProjectId] = useState<string>("");
   const [template, setTemplate] = useState<TemplateKind>("mobile");
+  const [publishFor, setPublishFor] = useState<FileRow | null>(null);
+  const [publishTags, setPublishTags] = useState("");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [profileName, setProfileName] = useState("");
+
+  // Create a starter project the first time a user lands here.
+  useEffect(() => {
+    if (projects === undefined || bootstrapped) return;
+    setBootstrapped(true);
+    if (projects.length === 0) ensureWorkspace({});
+  }, [projects, bootstrapped, ensureWorkspace]);
+
+  useEffect(() => {
+    if (projects && projects.length > 0 && !projectId) {
+      setProjectId((projects[0] as Project)._id);
+    }
+  }, [projects, projectId]);
+
+  useEffect(() => {
+    if (user?.name) setProfileName(user.name);
+  }, [user?.name]);
 
   const projectList = (projects ?? []) as Project[];
   const fileList = (files ?? []) as FileRow[];
 
-  useEffect(() => {
-    if (projectList.length > 0 && !projectId) {
-      setProjectId(projectList[0]._id);
-    }
-  }, [projectList, projectId]);
+  const projectNameById = new Map(projectList.map((p) => [p._id, p.name]));
 
-  const projectNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    projectList.forEach((p) => map.set(p._id, p.name));
-    return map;
-  }, [projectList]);
-
-  const visibleFiles = useMemo(() => {
-    let list = fileList;
-    if (tab === "trash") list = list.filter((f) => f.trashed);
-    else {
-      list = list.filter((f) => !f.trashed);
-      if (tab === "starred") list = list.filter((f) => f.starred);
-    }
-    const q = search.trim().toLowerCase();
-    if (q) list = list.filter((f) => f.name.toLowerCase().includes(q));
-    return list;
-  }, [fileList, tab, search]);
+  const visibleFiles = fileList
+    .filter((f) => (tab === "trash" ? f.trashed : !f.trashed))
+    .filter((f) => (tab === "starred" ? f.starred : true))
+    .filter((f) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        f.name.toLowerCase().includes(q) ||
+        (projectNameById.get(f.projectId) ?? "").toLowerCase().includes(q)
+      );
+    });
 
   const handleCreateFile = async () => {
     if (!projectId || !newName.trim()) return;
@@ -167,7 +176,7 @@ export default function Dashboard() {
       projectId: projectId as Id<"projects">,
       name: newName.trim(),
       template,
-      doc: starterDoc(template),
+      doc: buildTemplate(template),
     });
     setNewDialog(null);
     setNewName("");
@@ -201,13 +210,18 @@ export default function Dashboard() {
             className="flex items-center gap-2"
             onClick={() => navigate("/dashboard")}
           >
-            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-violet-500/20">
               <LayoutGrid className="size-4 text-white" />
             </span>
             <span className="text-sm font-semibold tracking-tight">DesignBox</span>
           </button>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => navigate("/explore")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => navigate("/explore")}
+            >
               <Compass className="size-4" />
               Explore
             </Button>
@@ -220,8 +234,22 @@ export default function Dashboard() {
                   <span className="text-sm">{user?.name ?? "Account"}</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => {
+                    setProfileName(user?.name ?? "");
+                    setRenameOpen(true);
+                  }}
+                >
+                  <PenLine className="mr-2 size-4" />
+                  Rename profile
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleSignOut}
+                  className="cursor-pointer"
+                >
                   <LogOut className="mr-2 size-4" />
                   Sign out
                 </DropdownMenuItem>
@@ -268,7 +296,7 @@ export default function Dashboard() {
               </>
             ) : projectList.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No projects yet — create your first one to start designing.
+                Setting up your workspace…
               </p>
             ) : (
               projectList.map((p) => (
@@ -289,7 +317,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Toolbar: tabs + search + new */}
+        {/* Toolbar */}
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-1">
             {tabs.map((t) => (
@@ -337,7 +365,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => (
                 <Card key={i} className="border-border/70 p-3 shadow-none">
-                  <Skeleton className="h-[160px] w-full" />
+                  <Skeleton className="h-[180px] w-full" />
                   <Skeleton className="mt-3 h-4 w-2/3" />
                 </Card>
               ))}
@@ -355,159 +383,69 @@ export default function Dashboard() {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {visibleFiles.map((f) => (
-                <Card
+                <FileCard
                   key={f._id}
-                  className="group cursor-pointer border-border/70 p-3 shadow-none transition-colors hover:border-violet-400/50"
-                  onClick={() => navigate(`/design/${f._id}`)}
-                >
-                  <div
-                    className={cn(
-                      "relative flex h-[160px] items-center justify-center overflow-hidden rounded-md bg-gradient-to-br",
-                      tileGradient(f.name),
-                    )}
-                  >
-                    <span className="text-2xl font-bold text-white/90">
-                      {f.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    {f.published && (
-                      <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-medium text-white">
-                        <Globe className="size-3" />
-                        Published
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-3 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{f.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {projectNameById.get(f.projectId) ?? "Project"}
-                        {" · "}
-                        {timeAgo(f.updatedAt)}
-                      </p>
-                    </div>
-                    <div
-                      className="flex shrink-0 items-center gap-0.5"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() =>
-                          setStarred({
-                            id: f._id as Id<"files">,
-                            starred: !f.starred,
-                          })
-                        }
-                        title={f.starred ? "Unstar" : "Star"}
-                      >
-                        <Star
-                          className={cn(
-                            "size-4",
-                            f.starred
-                              ? "fill-amber-400 text-amber-400"
-                              : "text-muted-foreground",
-                          )}
-                        />
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm">
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          {!f.trashed && (
-                            <DropdownMenuItem
-                              className="cursor-pointer"
-                              onClick={() =>
-                                f.published
-                                  ? unpublishFile({ id: f._id as Id<"files"> })
-                                  : publishFile({
-                                      id: f._id as Id<"files">,
-                                      tags: [],
-                                      description: undefined,
-                                    })
-                              }
-                            >
-                              <Globe className="mr-2 size-4" />
-                              {f.published ? "Unpublish" : "Publish to Explore"}
-                            </DropdownMenuItem>
-                          )}
-                          {f.trashed ? (
-                            <>
-                              <DropdownMenuItem
-                                className="cursor-pointer"
-                                onClick={() =>
-                                  restoreFile({ id: f._id as Id<"files"> })
-                                }
-                              >
-                                <RotateCcw className="mr-2 size-4" />
-                                Restore
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="cursor-pointer text-destructive focus:text-destructive"
-                                onClick={() =>
-                                  removeForever({ id: f._id as Id<"files"> })
-                                }
-                              >
-                                <Trash2 className="mr-2 size-4" />
-                                Delete forever
-                              </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <DropdownMenuItem
-                              className="cursor-pointer text-destructive focus:text-destructive"
-                              onClick={() => trashFile({ id: f._id as Id<"files"> })}
-                            >
-                              <Trash2 className="mr-2 size-4" />
-                              Move to trash
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                </Card>
+                  file={f}
+                  projectName={projectNameById.get(f.projectId) ?? "Project"}
+                  onOpen={() => navigate(`/design/${f._id}`)}
+                  onToggleStar={() =>
+                    setStarred({
+                      id: f._id as Id<"files">,
+                      starred: !f.starred,
+                    })
+                  }
+                  onPublish={() => {
+                    setPublishFor(f);
+                    setPublishTags("");
+                  }}
+                  onUnpublish={() =>
+                    unpublishFile({ id: f._id as Id<"files"> })
+                  }
+                  onTrash={() => trashFile({ id: f._id as Id<"files"> })}
+                  onRestore={() => restoreFile({ id: f._id as Id<"files"> })}
+                  onDeleteForever={() =>
+                    removeForever({ id: f._id as Id<"files"> })
+                  }
+                />
               ))}
             </div>
           )}
         </section>
 
         {/* Template shortcuts */}
-        {tab === "recent" &&
-          fileList.filter((f) => !f.trashed).length === 0 && (
-            <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Card
-                className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
-                onClick={() => {
-                  setTemplate("mobile");
-                  setNewName("Mobile app");
-                  setNewDialog("file");
-                }}
-              >
-                <Smartphone className="size-5 text-cyan-400" />
-                <p className="mt-3 text-sm font-medium">Mobile app template</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A ready-made phone screen with a header, hero card, and
-                  buttons you can restyle.
-                </p>
-              </Card>
-              <Card
-                className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
-                onClick={() => {
-                  setTemplate("web");
-                  setNewName("Web dashboard");
-                  setNewDialog("file");
-                }}
-              >
-                <LayoutGrid className="size-5 text-violet-400" />
-                <p className="mt-3 text-sm font-medium">Web dashboard template</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A desktop frame with sidebar navigation and metric cards.
-                </p>
-              </Card>
-            </div>
-          )}
+        {tab === "recent" && fileList.filter((f) => !f.trashed).length === 0 && (
+          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Card
+              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+              onClick={() => {
+                setTemplate("mobile");
+                setNewName("Mobile app");
+                setNewDialog("file");
+              }}
+            >
+              <Smartphone className="size-5 text-cyan-400" />
+              <p className="mt-3 text-sm font-medium">Mobile app template</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A ready-made phone screen with a header, hero card, and buttons
+                you can restyle.
+              </p>
+            </Card>
+            <Card
+              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+              onClick={() => {
+                setTemplate("web");
+                setNewName("Web dashboard");
+                setNewDialog("file");
+              }}
+            >
+              <LayoutGrid className="size-5 text-violet-400" />
+              <p className="mt-3 text-sm font-medium">Web dashboard template</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A desktop frame with sidebar navigation and metric cards.
+              </p>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* New file dialog */}
@@ -596,6 +534,190 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Publish dialog */}
+      <Dialog
+        open={publishFor !== null}
+        onOpenChange={(open) => !open && setPublishFor(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Publish to Explore</DialogTitle>
+            <DialogDescription>
+              “{publishFor?.name}” will be listed in the public catalog for
+              anyone to find, inspect, and remix.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="Tags, comma separated (e.g. mobile, ecommerce)"
+            value={publishTags}
+            onChange={(e) => setPublishTags(e.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPublishFor(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              onClick={() => {
+                if (!publishFor) return;
+                publishFile({
+                  id: publishFor._id as Id<"files">,
+                  description: undefined,
+                  tags: publishTags
+                    .split(",")
+                    .map((t) => t.trim().toLowerCase())
+                    .filter(Boolean)
+                    .slice(0, 5),
+                });
+                setPublishFor(null);
+              }}
+            >
+              <Globe className="mr-2 size-4" />
+              Publish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Profile rename dialog */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Display name</DialogTitle>
+            <DialogDescription>
+              This is the name collaborators see on your cursor and comments.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={profileName}
+            onChange={(e) => setProfileName(e.target.value)}
+            placeholder="Your name"
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              disabled={!profileName.trim()}
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              onClick={async () => {
+                await updateProfile({ name: profileName.trim() });
+                setRenameOpen(false);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
+  );
+}
+
+/* ---------- File card with live thumbnail and actions ---------- */
+
+function FileCard({
+  file,
+  projectName,
+  onOpen,
+  onToggleStar,
+  onPublish,
+  onUnpublish,
+  onTrash,
+  onRestore,
+  onDeleteForever,
+}: {
+  file: FileRow;
+  projectName: string;
+  onOpen: () => void;
+  onToggleStar: () => void;
+  onPublish: () => void;
+  onUnpublish: () => void;
+  onTrash: () => void;
+  onRestore: () => void;
+  onDeleteForever: () => void;
+}) {
+  const fileRow = useQuery(api.files.get, {
+    id: file._id as Id<"files">,
+  });
+  const doc = fileRow?.doc as DesignDoc | undefined;
+
+  return (
+    <Card
+      className="group cursor-pointer border-border/70 p-3 shadow-none transition-colors hover:border-violet-400/50"
+      onClick={onOpen}
+    >
+      <div className="overflow-hidden rounded-md bg-surface-canvas">
+        <FileThumb doc={doc} name={file.name} />
+      </div>
+      <div className="mt-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{file.name}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {projectName} · {timeAgo(file.updatedAt)}
+          </p>
+        </div>
+        <div
+          className="flex shrink-0 items-center gap-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onToggleStar}
+            title={file.starred ? "Unstar" : "Star"}
+          >
+            <Star
+              className={cn(
+                "size-4",
+                file.starred
+                  ? "fill-amber-400 text-amber-400"
+                  : "text-muted-foreground",
+              )}
+            />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {!file.trashed && (
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={file.published ? onUnpublish : onPublish}
+                >
+                  <Globe className="mr-2 size-4" />
+                  {file.published ? "Unpublish" : "Publish to Explore"}
+                </DropdownMenuItem>
+              )}
+              {file.trashed ? (
+                <>
+                  <DropdownMenuItem className="cursor-pointer" onClick={onRestore}>
+                    <RotateCcw className="mr-2 size-4" />
+                    Restore
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                    onClick={onDeleteForever}
+                  >
+                    <Trash2 className="mr-2 size-4" />
+                    Delete forever
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                  onClick={onTrash}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Move to trash
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </Card>
   );
 }

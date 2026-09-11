@@ -1,19 +1,29 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
+import { useEditor, type Tool } from "@/lib/store";
+import {
+  activePage,
+  defaultNode,
+  fitTransform,
+  hitTest,
+  nodeBounds,
+  pageToScreen,
+  screenToPage,
+  type Bounds,
+  type DesignDoc,
+  type DesignNode,
+} from "@/lib/geo";
+import { renderDoc } from "@/lib/render";
+import { buildTemplate } from "@/lib/templates";
+import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -22,359 +32,364 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  fitTransform,
-  hitTest,
-  screenToPage,
-  defaultNode,
-  type DesignDoc,
-  type DesignNode,
-  type NodeType,
-} from "@/lib/geo";
-import { renderDoc } from "@/lib/render";
-import { useEditor, type Tool } from "@/lib/store";
-import {
-  ArrowLeftRight,
-  ChevronDown,
-  ChevronUp,
+  ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Circle,
-  Clipboard,
-  MessageCircle as CommentIcon,
   Copy,
+  Download,
   Eye,
   EyeOff,
   Frame,
-  Hand,
+  Globe,
   History,
   Image as ImageIcon,
   Layers,
+  Link2,
   Lock,
+  MessageCircle,
   Minus,
   MousePointer2,
+  Move,
+  MoveVertical,
   Pentagon,
   Plus,
   Redo2,
-  Save,
   Share2,
-  Slash,
   Square,
   Trash2,
-  Triangle,
   Type,
   Undo2,
-  Users,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
-import { useMutation, useQuery } from "convex/react";
 
-interface PresenceUser {
-  userId: string;
-  name: string;
-  color: string;
-  x: number;
-  y: number;
-  selection: string[];
-}
+/* ---------- Small helpers ---------- */
 
-interface CommentRow {
-  _id: string;
-  authorName: string;
-  body: string;
-  x: number;
-  y: number;
-  resolved: boolean;
-  createdAt: number;
-}
-
-interface FileRow {
-  _id: string;
-  name: string;
-  doc: DesignDoc | null;
-  version: number;
-  ownerId: string;
-  published: boolean;
-}
-
-const NODE_ICONS: Record<NodeType, typeof Square> = {
+const NODE_ICONS: Record<DesignNode["type"], typeof Square> = {
   frame: Frame,
   rect: Square,
   ellipse: Circle,
   line: Minus,
   text: Type,
   image: ImageIcon,
-  polygon: Triangle,
+  polygon: Pentagon,
 };
 
-function ShapeIcon({ type }: { type: NodeType }) {
-  const Icon = NODE_ICONS[type] ?? Square;
-  return <Icon className="size-3.5 shrink-0" />;
+function timeAgo(ts: number) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(ts).toLocaleDateString();
 }
 
-function sanitizeDoc(raw: unknown): DesignDoc {
-  if (
-    raw &&
-    typeof raw === "object" &&
-    Array.isArray((raw as DesignDoc).pages) &&
-    (raw as DesignDoc).pages.length > 0
-  ) {
-    return raw as DesignDoc;
-  }
-  return { pages: [], activePageId: "", background: "#101012" };
+const SWATCHES = [
+  "#8b5cf6",
+  "#22d3ee",
+  "#34d399",
+  "#facc15",
+  "#f472b6",
+  "#fb923c",
+  "#f87171",
+  "#a3e635",
+  "#ffffff",
+  "#a1a1aa",
+  "#1c1c22",
+  "#000000",
+];
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      {children}
+    </p>
+  );
 }
+
+function NumField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(Math.round(value * 100) / 100);
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-md border border-border/70 bg-background/60 px-2 focus-within:border-violet-400/50">
+      <span className="w-6 shrink-0 text-center text-[10px] font-semibold uppercase text-muted-foreground">
+        {label}
+      </span>
+      <input
+        type="number"
+        className="input-numeric w-full bg-transparent text-xs outline-none"
+        value={shown}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = parseFloat(e.target.value);
+          if (!isNaN(n)) onChange(n);
+        }}
+        onBlur={() => setDraft(null)}
+      />
+    </label>
+  );
+}
+
+type Gesture =
+  | { kind: "pan"; startX: number; startY: number; panX: number; panY: number }
+  | {
+      kind: "move";
+      lastX: number;
+      lastY: number;
+      ids: string[];
+      pushed: boolean;
+    }
+  | {
+      kind: "resize";
+      handle: string;
+      id: string;
+      start: Bounds;
+      startX: number;
+      startY: number;
+      pushed: boolean;
+    }
+  | { kind: "draw"; originX: number; originY: number; type: DesignNode["type"] };
+
+const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
+
+/* ---------- Editor page ---------- */
 
 export default function Editor() {
   const { fileId } = useParams<{ fileId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const file = useQuery(api.files.get, {
-    id: fileId as Id<"files">,
-  }) as FileRow | undefined;
-
-  const presence = useQuery(api.presence.list, {
-    fileId: fileId as Id<"files">,
-  }) as PresenceUser[] | undefined;
-
+  const fileRow = useQuery(api.files.get, { id: fileId as Id<"files"> });
   const comments = useQuery(api.comments.list, {
     fileId: fileId as Id<"files">,
-  }) as CommentRow[] | undefined;
-
+  });
   const versions = useQuery(api.files.listVersions, {
     fileId: fileId as Id<"files">,
-  }) as
-    | { _id: string; version: number; label: string; createdAt: number }[]
-    | undefined;
+  });
+  const presence = useQuery(api.presence.list, {
+    fileId: fileId as Id<"files">,
+  });
 
   const updateDoc = useMutation(api.files.updateDoc);
   const renameFile = useMutation(api.files.rename);
-  const heartbeat = useMutation(api.presence.heartbeat);
-  const leave = useMutation(api.presence.leave);
+  const snapshotVersion = useMutation(api.files.snapshot);
+  const restoreVersion = useMutation(api.files.restoreVersion);
   const addComment = useMutation(api.comments.add);
   const resolveComment = useMutation(api.comments.resolve);
   const removeComment = useMutation(api.comments.remove);
-  const restoreVersion = useMutation(api.files.restoreVersion);
+  const heartbeat = useMutation(api.presence.heartbeat);
+  const leavePresence = useMutation(api.presence.leave);
   const publishFile = useMutation(api.files.publish);
   const unpublishFile = useMutation(api.files.unpublish);
 
-  const editor = useEditor();
-  const {
-    doc,
-    selectedIds,
-    tool,
-    hoverId,
-    zoom,
-    panX,
-    panY,
-    dirty,
-    setDoc,
-    adoptDoc,
-    setTool,
-    setHover,
-    select,
-    pushHistory,
-    addNode,
-    updateNodesLive,
-    moveNodesLive,
-    deleteNodes,
-    duplicateNodes,
-    reorder,
-    addPage,
-    setPage,
-    renamePage,
-    deletePage,
-    setViewport,
-    undo,
-    redo,
-    markSaved,
-  } = editor;
+  const doc = useEditor((s) => s.doc);
+  const tool = useEditor((s) => s.tool);
+  const selectedIds = useEditor((s) => s.selectedIds);
+  const hoverId = useEditor((s) => s.hoverId);
+  const zoom = useEditor((s) => s.zoom);
+  const panX = useEditor((s) => s.panX);
+  const panY = useEditor((s) => s.panY);
+  const dirty = useEditor((s) => s.dirty);
+  const fittedFor = useEditor((s) => s.fittedFor);
+  const canUndo = useEditor((s) => s.past.length > 0);
+  const canRedo = useEditor((s) => s.future.length > 0);
+
+  const store = useEditor;
+
+  const [name, setName] = useState("");
+  const [presenting, setPresenting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [publishTags, setPublishTags] = useState("");
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageTargetRef = useRef<{ x: number; y: number } | null>(null);
+  const gestureRef = useRef<Gesture | null>(null);
+  const mouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastCursorSentRef = useRef<number>(0);
 
-  const [viewW, setViewW] = useState(1200);
-  const [viewH, setViewH] = useState(800);
-  const [saving, setSaving] = useState<"saved" | "saving" | "dirty">("saved");
-  const [dragging, setDragging] = useState<null | {
-    kind: "move" | "resize" | "pan" | "draw" | "marquee";
-    startPageX: number;
-    startPageY: number;
-    lastPageX: number;
-    lastPageY: number;
-    handle?: string;
-    orig?: Record<string, DesignNode>;
-  }>(null);
-  const [pendingComment, setPendingComment] = useState<null | {
+  const [previewNode, setPreviewNode] = useState<DesignNode | null>(null);
+  const [editingText, setEditingText] = useState<{
+    id: string;
+    value: string;
+  } | null>(null);
+  const [draftComment, setDraftComment] = useState<{
     x: number;
     y: number;
     body: string;
-  }>(null);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
+  } | null>(null);
 
-  // ---- Load doc into store once the file arrives ----
-  const loadedRef = useRef(false);
+  /* ----- Load doc once per file ----- */
+  const loadedIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!file || loadedRef.current) return;
-    const clean = sanitizeDoc(file.doc);
-    if (clean.pages.length > 0) {
-      setDoc(clean, { resetHistory: true });
-      const r = wrapRef.current?.getBoundingClientRect();
-      const t = fitTransform(
-        clean,
-        r?.width ?? 1200,
-        r?.height ?? 800,
-      );
-      setViewport(t.zoom, t.panX, t.panY);
-    } else {
-      setDoc({ pages: [{ id: "p1", name: "Page 1", nodes: [] }], activePageId: "p1", background: "#101012" }, { resetHistory: true });
-    }
-    loadedRef.current = true;
-  }, [file, setDoc, setViewport]);
-
-  // ---- Adopt remote doc changes from Convex (multiplayer sync) ----
-  const remoteDocRef = useRef<number>(0);
-  useEffect(() => {
-    if (!file?.doc) return;
-    const clean = sanitizeDoc(file.doc);
-    remoteDocRef.current = file.version;
-    if (!dragging) adoptDoc(clean);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.version]);
-
-  // ---- Persist local edits to Convex (throttled autosave) ----
-  const saveTimerRef = useRef<number | null>(null);
-  const lastSavedDocRef = useRef<string>("");
-  useEffect(() => {
-    if (!file || !dirty) return;
-    setSaving("saving");
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(async () => {
-      const serialized = JSON.stringify(doc);
-      if (serialized === lastSavedDocRef.current) return;
-      lastSavedDocRef.current = serialized;
-      try {
-        await updateDoc({ id: file._id as Id<"files">, doc });
-        markSaved();
-        setSaving("saved");
-      } catch {
-        setSaving("dirty");
-      }
-    }, 600);
-    return () => {
-      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, dirty, file?._id]);
-
-  // ---- Presence heartbeat ----
-  useEffect(() => {
-    if (!fileId) return;
-    const send = () => {
-      void heartbeat({
-        fileId: fileId as Id<"files">,
-        x: lastMouse.current.x,
-        y: lastMouse.current.y,
-        selection: selectedIds,
-      });
-    };
-    send();
-    const id = window.setInterval(send, 5000);
-    return () => {
-      window.clearInterval(id);
-      void leave({ fileId: fileId as Id<"files"> });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, selectedIds]);
-
-  const lastMouse = useRef({ x: 0, y: 0 });
-
-  // ---- Canvas sizing ----
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        setViewW(e.contentRect.width);
-        setViewH(e.contentRect.height);
-      }
+    if (!fileRow || loadedIdRef.current === fileId) return;
+    loadedIdRef.current = fileId ?? null;
+    const remote = fileRow.doc as DesignDoc | undefined;
+    const valid =
+      remote &&
+      typeof remote === "object" &&
+      Array.isArray(remote.pages) &&
+      remote.pages.length > 0;
+    store.getState().setDoc(valid ? (remote as DesignDoc) : buildTemplate("blank"), {
+      resetHistory: true,
     });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    setName(fileRow.name);
+  }, [fileRow, fileId, store]);
 
-  // ---- Render loop ----
-  const remoteSelection = useMemo(() => {
-    const me = user?._id;
-    const ids: string[] = [];
-    const colors: string[] = [];
-    for (const p of presence ?? []) {
-      if (p.userId === me) continue;
-      ids.push(...p.selection);
-      colors.push(p.color);
+  /* ----- Fit view once per loaded file ----- */
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    if (fittedFor === fileId) return;
+    const el = wrapRef.current;
+    const t = fitTransform(doc, el.clientWidth, el.clientHeight);
+    store.setState({ fittedFor: fileId ?? null });
+    store.getState().setViewport(t.zoom, t.panX, t.panY);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, fileId, fittedFor]);
+
+  /* ----- Autosave (debounced) ----- */
+  useEffect(() => {
+    if (!dirty || !fileRow || !fileId) return;
+    const handle = setTimeout(() => {
+      updateDoc({ id: fileId as Id<"files">, doc }).then(() =>
+        store.getState().markSaved(),
+      );
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [doc, dirty, fileRow, fileId, updateDoc, store]);
+
+  /* ----- Multiplayer doc sync: adopt remote updates we haven't seen ----- */
+  const lastPushedVersionRef = useRef<number>(0);
+  const adoptRemote = useRef(true);
+  useEffect(() => {
+    if (!fileRow) return;
+    // Skip while we're mid-gesture or have unsaved local work in flight.
+    if (gestureRef.current || dirty) {
+      adoptRemote.current = false;
+      return;
     }
-    return { ids: [...new Set(ids)], colors };
-  }, [presence, user?._id]);
+    adoptRemote.current = true;
+    const remote = fileRow.doc as DesignDoc | undefined;
+    if (!remote || !Array.isArray(remote.pages) || remote.pages.length === 0) return;
+    const local = store.getState().doc;
+    const sameVersion = fileRow.version === lastPushedVersionRef.current;
+    if (sameVersion) return;
+    lastPushedVersionRef.current = fileRow.version;
+    // Only replace if structurally different (cheap guard) to avoid clobbering
+    // local in-flight updates that already round-tripped.
+    if (JSON.stringify(remote) !== JSON.stringify(local)) {
+      store.getState().adoptDoc(remote);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileRow?.version, fileRow?.doc, dirty, gestureRef, store]);
 
-  const draw = useCallback(() => {
+  /* ----- Presence heartbeat (interval + throttled on movement) ----- */
+  const sendPresence = useCallback(
+    (x: number, y: number, selection: string[]) =>
+      heartbeat({
+        fileId: fileId as Id<"files">,
+        x,
+        y,
+        selection,
+      }),
+    [heartbeat, fileId],
+  );
+
+  useEffect(() => {
+    if (!fileRow) return;
+    const handle = setInterval(() => {
+      sendPresence(mouseRef.current.x, mouseRef.current.y, store.getState().selectedIds);
+    }, 3000);
+    return () => clearInterval(handle);
+  }, [fileRow, sendPresence, store]);
+
+  useEffect(() => {
+    return () => {
+      if (fileId) leavePresence({ fileId: fileId as Id<"files"> });
+    };
+  }, [fileId, leavePresence]);
+
+  /* ----- Canvas rendering ----- */
+  const remoteSelection = useMemo(() => {
+    const ids: string[] = [];
+    for (const p of presence ?? []) {
+      if (p.userId === user?._id) continue;
+      ids.push(...p.selection);
+    }
+    return ids;
+  }, [presence, user]);
+
+  const render = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || doc.pages.length === 0) return;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = viewW * dpr;
-    canvas.height = viewH * dpr;
-    canvas.style.width = `${viewW}px`;
-    canvas.style.height = `${viewH}px`;
-    const preview =
-      dragging?.kind === "draw"
-        ? {
-            ...(lastDrawNodeRef.current ?? {}),
-          }
-        : null;
-    renderDoc(
-      ctx,
-      doc,
-      { zoom, panX, panY },
-      viewW,
-      viewH,
-      dpr,
-      {
-        showChrome: tool === "select",
-        selection: selectedIds,
-        remoteSelection: remoteSelection.ids,
-        selectionColor: remoteSelection.colors[0],
-        hoverId,
-        drawPreview: preview as DesignNode | null,
-      },
-    );
-  }, [
-    doc,
-    zoom,
-    panX,
-    panY,
-    viewW,
-    viewH,
-    tool,
-    selectedIds,
-    remoteSelection,
-    hoverId,
-    dragging,
-  ]);
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+    const state = store.getState();
+    const other = (presence ?? []).find((p) => p.userId !== user?._id);
+    renderDoc(ctx, state.doc, { zoom: state.zoom, panX: state.panX, panY: state.panY }, w, h, dpr, {
+      showChrome: !presenting,
+      selection: state.selectedIds,
+      remoteSelection,
+      hoverId: state.hoverId,
+      drawPreview: previewNode,
+      selectionColor: other?.color ?? "#8b5cf6",
+    });
+  }, [presence, user, presenting, previewNode, remoteSelection, store]);
 
   useEffect(() => {
-    draw();
-  }, [draw]);
+    render();
+  });
+  useEffect(() => {
+    const onResize = () => render();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [render]);
 
-  const lastDrawNodeRef = useRef<DesignNode | null>(null);
-
-  // ---- Pointer interactions ----
+  /* ----- Coordinate helpers ----- */
   const toPage = (e: React.PointerEvent | React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     return screenToPage(
@@ -383,186 +398,253 @@ export default function Editor() {
       e.clientY - rect.top,
     );
   };
+  const toScreen = (x: number, y: number) =>
+    pageToScreen({ zoom, panX, panY }, x, y);
 
-  const resizeHandles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
-
-  const handleUnderCursor = (
-    px: number,
-    py: number,
-  ): string | null => {
+  /* ----- Resize-handle hit test (screen space) ----- */
+  const hitHandle = (e: React.PointerEvent): string | null => {
     if (selectedIds.length !== 1) return null;
-    const page = doc.pages.find((p) => p.id === doc.activePageId);
-    const n = page?.nodes.find((x) => x.id === selectedIds[0]);
-    if (!n) return null;
-    const tol = 6 / zoom;
-    const x0 = n.x,
-      y0 = n.y,
-      x1 = n.x + n.w,
-      y1 = n.y + n.h;
-    for (const h of resizeHandles) {
-      const hx = h.includes("w") ? x0 : h.includes("e") ? x1 : (x0 + x1) / 2;
-      const hy = h.includes("n") ? y0 : h.includes("s") ? y1 : (y0 + y1) / 2;
-      if (Math.abs(px - hx) <= tol && Math.abs(py - hy) <= tol) return h;
+    const node = activePage(doc).nodes.find((n) => n.id === selectedIds[0]);
+    if (!node || node.locked) return null;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const b = nodeBounds(node);
+    const xs = [b.x, b.x + b.w / 2, b.x + b.w];
+    const ys = [b.y, b.y + b.h / 2, b.y + b.h];
+    const pts: Record<string, [number, number]> = {
+      nw: [xs[0], ys[0]],
+      n: [xs[1], ys[0]],
+      ne: [xs[2], ys[0]],
+      e: [xs[2], ys[1]],
+      se: [xs[2], ys[2]],
+      s: [xs[1], ys[2]],
+      sw: [xs[0], ys[2]],
+      w: [xs[0], ys[1]],
+    };
+    for (const hKey of HANDLES) {
+      const [hx, hy] = pts[hKey];
+      const scr = toScreen(hx, hy);
+      if (Math.abs(scr.sx - sx) <= 6 && Math.abs(scr.sy - sy) <= 6) return hKey;
     }
     return null;
   };
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!canvasRef.current) return;
-    canvasRef.current.setPointerCapture(e.pointerId);
-    const { x: px, y: py } = toPage(e);
+  /* ----- Pointer interactions ----- */
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (presenting) return;
+    canvasRef.current?.setPointerCapture(e.pointerId);
+    const page = toPage(e);
+    const state = store.getState();
 
-    if (tool === "hand" || e.button === 1 || (e.button === 0 && e.shiftKey && tool === "select" && e.altKey)) {
-      setDragging({ kind: "pan", startPageX: px, startPageY: py, lastPageX: px, lastPageY: py });
+    if (tool === "hand" || e.button === 1 || e.altKey) {
+      gestureRef.current = {
+        kind: "pan",
+        startX: e.clientX,
+        startY: e.clientY,
+        panX,
+        panY,
+      };
       return;
     }
 
     if (tool === "comment") {
-      setPendingComment({ x: px, y: py, body: "" });
-      setTool("select");
+      setDraftComment({ x: page.x, y: page.y, body: "" });
       return;
     }
 
-    if (tool !== "select") {
-      // Start drawing a shape
-      let node: DesignNode;
-      if (tool === "image") {
-        fileInputRef.current?.click();
-        setTool("select");
+    // Resize handles take priority over selection when exactly one node is selected.
+    if (tool === "select") {
+      const handle = hitHandle(e);
+      if (handle) {
+        const node = activePage(doc).nodes.find((n) => n.id === selectedIds[0])!;
+        gestureRef.current = {
+          kind: "resize",
+          handle,
+          id: node.id,
+          start: nodeBounds(node),
+          startX: page.x,
+          startY: page.y,
+          pushed: false,
+        };
         return;
       }
-      node = defaultNode(tool as NodeType, px, py);
-      node.x = px;
-      node.y = py;
-      node.w = 0;
-      node.h = 0;
-      lastDrawNodeRef.current = node;
-      setDragging({ kind: "draw", startPageX: px, startPageY: py, lastPageX: px, lastPageY: py });
-      return;
     }
 
-    // Select tool
-    const handle = handleUnderCursor(px, py);
-    if (handle && selectedIds.length === 1) {
-      const page = doc.pages.find((p) => p.id === doc.activePageId)!;
-      const orig: Record<string, DesignNode> = {};
-      for (const n of page.nodes) if (n.id === selectedIds[0]) orig[n.id] = { ...n };
-      pushHistory();
-      setDragging({ kind: "resize", startPageX: px, startPageY: py, lastPageX: px, lastPageY: py, handle, orig });
-      return;
-    }
-
-    const hit = hitTest(doc, px, py);
-    if (hit) {
-      if (!selectedIds.includes(hit.id)) {
-        select(e.shiftKey ? [...selectedIds, hit.id] : [hit.id]);
+    if (tool === "select") {
+      const hit = hitTest(state.doc, page.x, page.y);
+      if (hit && !hit.locked) {
+        const ids = selectedIds.includes(hit.id)
+          ? selectedIds
+          : e.shiftKey
+            ? [...selectedIds, hit.id]
+            : [hit.id];
+        state.select(ids);
+        gestureRef.current = {
+          kind: "move",
+          lastX: page.x,
+          lastY: page.y,
+          ids,
+          pushed: false,
+        };
+      } else if (!hit) {
+        state.select([]);
+        gestureRef.current = {
+          kind: "pan",
+          startX: e.clientX,
+          startY: e.clientY,
+          panX,
+          panY,
+        };
       }
-      const page = doc.pages.find((p) => p.id === doc.activePageId)!;
-      const ids = selectedIds.includes(hit.id)
-        ? selectedIds
-        : [hit.id];
-      const orig: Record<string, DesignNode> = {};
-      for (const n of page.nodes) if (ids.includes(n.id)) orig[n.id] = { ...n };
-      pushHistory();
-      setDragging({ kind: "move", startPageX: px, startPageY: py, lastPageX: px, lastPageY: py, orig });
-    } else {
-      select([]);
-      setDragging({ kind: "marquee", startPageX: px, startPageY: py, lastPageX: px, lastPageY: py });
+      return;
+    }
+
+    if (["frame", "rect", "ellipse", "line", "polygon"].includes(tool)) {
+      gestureRef.current = {
+        kind: "draw",
+        originX: page.x,
+        originY: page.y,
+        type: tool as DesignNode["type"],
+      };
+      setPreviewNode(defaultNode(tool as DesignNode["type"], page.x, page.y));
+      return;
+    }
+
+    if (tool === "text") {
+      const node = defaultNode("text", page.x, page.y);
+      node.text = "";
+      node.h = (node.fontSize ?? 16) * 1.4;
+      state.addNode(node);
+      setEditingText({ id: node.id, value: "" });
+      return;
+    }
+
+    if (tool === "image") {
+      imageTargetRef.current = { x: page.x, y: page.y };
+      fileInputRef.current?.click();
+      return;
     }
   };
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    const { x: px, y: py } = toPage(e);
-    lastMouse.current = { x: px, y: py };
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const page = toPage(e);
+    mouseRef.current = page;
+    const g = gestureRef.current;
 
-    if (!dragging) {
-      if (tool === "select") {
-        const hit = hitTest(doc, px, py);
-        setHover(hit?.id ?? null);
+    if (!g) {
+      if (!presenting && tool === "select") {
+        const hit = hitTest(store.getState().doc, page.x, page.y);
+        if ((hit?.id ?? null) !== hoverId)
+          store.getState().setHover(hit?.id ?? null);
       }
       return;
     }
 
-    const dx = px - dragging.lastPageX;
-    const dy = py - dragging.lastPageY;
-    dragging.lastPageX = px;
-    dragging.lastPageY = py;
+    const state = store.getState();
 
-    if (dragging.kind === "pan") {
-      setViewport(zoom, panX + dx * zoom, panY + dy * zoom);
-    } else if (dragging.kind === "move" && dragging.orig) {
-      moveNodesLive(Object.keys(dragging.orig), dx, dy);
-    } else if (dragging.kind === "resize" && dragging.handle && dragging.orig) {
-      const id = Object.keys(dragging.orig)[0];
-      const o = dragging.orig[id];
-      const h = dragging.handle;
-      const patch: Partial<DesignNode> = {};
-      let nx = o.x,
-        ny = o.y,
-        nw = o.w,
-        nh = o.h;
-      if (h.includes("e")) nw = o.w + (px - dragging.startPageX);
-      if (h.includes("s")) nh = o.h + (py - dragging.startPageY);
-      if (h.includes("w")) {
-        nw = o.w - (px - dragging.startPageX);
-        nx = o.x + (px - dragging.startPageX);
+    // Throttled live cursor broadcast (alongside the 3s heartbeat).
+    const now = Date.now();
+    if (now - lastCursorSentRef.current > 120) {
+      lastCursorSentRef.current = now;
+      sendPresence(page.x, page.y, state.selectedIds);
+    }
+
+    if (g.kind === "pan") {
+      state.setViewport(
+        zoom,
+        g.panX + (e.clientX - g.startX),
+        g.panY + (e.clientY - g.startY),
+      );
+      return;
+    }
+
+    if (g.kind === "move") {
+      const dx = page.x - g.lastX;
+      const dy = page.y - g.lastY;
+      if (!g.pushed && (Math.abs(page.x - g.lastX) > 0 || Math.abs(dy) > 0)) {
+        state.pushHistory();
+        g.pushed = true;
       }
-      if (h.includes("n")) {
-        nh = o.h - (py - dragging.startPageY);
-        ny = o.y + (py - dragging.startPageY);
+      g.lastX = page.x;
+      g.lastY = page.y;
+      state.moveNodesLive(g.ids, dx, dy);
+      return;
+    }
+
+    if (g.kind === "resize") {
+      if (!g.pushed) {
+        state.pushHistory();
+        g.pushed = true;
       }
-      patch.x = nx;
-      patch.y = ny;
-      patch.w = Math.max(nw, 4);
-      patch.h = o.type === "line" ? nh : Math.max(nh, 4);
-      updateNodesLive([id], patch);
-    } else if (dragging.kind === "draw") {
-      const start = { x: dragging.startPageX, y: dragging.startPageY };
-      const node = lastDrawNodeRef.current;
-      if (node) {
-        node.x = Math.min(start.x, px);
-        node.y = Math.min(start.y, py);
-        node.w = Math.abs(px - start.x);
-        node.h = node.type === "line" ? py - start.y : Math.abs(py - start.y);
-        if (node.type === "line") {
-          node.x = start.x;
-          node.y = start.y;
-          node.w = px - start.x;
-        }
-        draw();
+      const b = g.start;
+      const dx = page.x - g.startX;
+      const dy = page.y - g.startY;
+      let { x, y, w, h } = b;
+      if (g.handle.includes("e")) w = Math.max(2, b.w + dx);
+      if (g.handle.includes("s")) h = Math.max(2, b.h + dy);
+      if (g.handle.includes("w")) {
+        w = Math.max(2, b.w - dx);
+        x = b.x + (b.w - w);
       }
+      if (g.handle.includes("n")) {
+        h = Math.max(2, b.h - dy);
+        y = b.y + (b.h - h);
+      }
+      state.updateNodesLive([g.id], { x, y, w, h });
+      return;
+    }
+
+    if (g.kind === "draw") {
+      const w = page.x - g.originX;
+      const h = page.y - g.originY;
+      const isLine = g.type === "line";
+      setPreviewNode({
+        ...(previewNode ?? defaultNode(g.type, g.originX, g.originY)),
+        x: isLine ? g.originX : Math.min(g.originX, page.x),
+        y: isLine ? g.originY : Math.min(g.originY, page.y),
+        w: isLine ? w : Math.abs(w),
+        h: isLine ? h : Math.abs(h),
+      });
     }
   };
 
   const onPointerUp = () => {
-    if (!dragging) return;
-    if (dragging.kind === "draw" && lastDrawNodeRef.current) {
-      const n = lastDrawNodeRef.current;
-      if (n.w > 2 || Math.abs(n.h) > 2) {
-        addNode(n);
-      }
-      lastDrawNodeRef.current = null;
+    const g = gestureRef.current;
+    gestureRef.current = null;
+    if (g?.kind === "draw" && previewNode) {
+      const tooSmall = Math.abs(previewNode.w) < 4 && Math.abs(previewNode.h) < 4;
+      if (!tooSmall) store.getState().addNode(previewNode);
+      setPreviewNode(null);
     }
-    setDragging(null);
   };
 
-  const onWheel = (e: React.WheelEvent) => {
+  const onDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const page = toPage(e);
+    const hit = hitTest(store.getState().doc, page.x, page.y);
+    if (hit && hit.type === "text") {
+      store.getState().select([hit.id]);
+      setEditingText({ id: hit.id, value: hit.text ?? "" });
+    }
+  };
+
+  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
     if (e.ctrlKey || e.metaKey) {
-      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const factor = Math.exp(-e.deltaY * 0.01);
       const newZoom = Math.min(8, Math.max(0.05, zoom * factor));
-      const rect = canvasRef.current!.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      // Keep the page point under the cursor fixed
-      const pageX = (cx - panX) / zoom;
-      const pageY = (cy - panY) / zoom;
-      setViewport(newZoom, cx - pageX * newZoom, cy - pageY * newZoom);
+      const px = sx - ((sx - panX) * newZoom) / zoom;
+      const py = sy - ((sy - panY) * newZoom) / zoom;
+      store.getState().setViewport(newZoom, px, py);
     } else {
-      setViewport(zoom, panX - e.deltaX, panY - e.deltaY);
+      store.getState().setViewport(zoom, panX - e.deltaX, panY - e.deltaY);
     }
   };
 
-  // ---- Keyboard shortcuts ----
+  /* ----- Keyboard shortcuts ----- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -572,953 +654,1232 @@ export default function Editor() {
         target.isContentEditable
       )
         return;
+      const state = store.getState();
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "z") {
+
+      if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        e.shiftKey ? redo() : undo();
-      } else if (mod && e.key === "d") {
+        if (e.shiftKey) state.redo();
+        else state.undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        duplicateNodes(selectedIds);
-      } else if (mod && e.key === "a") {
+        state.duplicateNodes(state.selectedIds);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        const page = doc.pages.find((p) => p.id === doc.activePageId);
-        select(page?.nodes.map((n) => n.id) ?? []);
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedIds.length > 0) {
+        state.select(activePage(state.doc).nodes.map((n) => n.id));
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" });
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (state.selectedIds.length > 0) {
           e.preventDefault();
-          deleteNodes(selectedIds);
+          state.deleteNodes(state.selectedIds);
         }
-      } else if (e.key === "v") setTool("select");
-      else if (e.key === "h") setTool("hand");
-      else if (e.key === "f") setTool("frame");
-      else if (e.key === "r") setTool("rect");
-      else if (e.key === "o") setTool("ellipse");
-      else if (e.key === "l") setTool("line");
-      else if (e.key === "p") setTool("polygon");
-      else if (e.key === "t") setTool("text");
-      else if (e.key === "c") setTool("comment");
-      else if (e.key === "0" && mod) {
+        return;
+      }
+      if (e.key === "Escape") {
+        state.setTool("select");
+        state.select([]);
+        setPresenting(false);
+        setDraftComment(null);
+        return;
+      }
+      const key = e.key.toLowerCase();
+      const toolMap: Record<string, Tool> = {
+        v: "select",
+        h: "hand",
+        f: "frame",
+        r: "rect",
+        o: "ellipse",
+        l: "line",
+        p: "polygon",
+        t: "text",
+        i: "image",
+        c: "comment",
+      };
+      if (toolMap[key]) state.setTool(toolMap[key]);
+      if (key === "0") state.setViewport(1, state.panX, state.panY);
+      if (e.shiftKey && key === "!") {
+        const el = wrapRef.current;
+        if (el) {
+          const t = fitTransform(state.doc, el.clientWidth, el.clientHeight);
+          state.setViewport(t.zoom, t.panX, t.panY);
+        }
+      }
+      if (
+        ["arrowleft", "arrowright", "arrowup", "arrowdown"].includes(key) &&
+        state.selectedIds.length > 0
+      ) {
         e.preventDefault();
-        const t = fitTransform(doc, viewW, viewH);
-        setViewport(t.zoom, t.panX, t.panY);
+        const d = e.shiftKey ? 10 : 1;
+        const dx = key === "arrowleft" ? -d : key === "arrowright" ? d : 0;
+        const dy = key === "arrowup" ? -d : key === "arrowdown" ? d : 0;
+        state.moveNodesLive(state.selectedIds, dx, dy);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    selectedIds,
-    doc,
-    viewW,
-    viewH,
-    setTool,
-    select,
-    deleteNodes,
-    duplicateNodes,
-    undo,
-    redo,
-    setViewport,
-  ]);
+  }, [fileId, snapshotVersion, store]);
 
-  // ---- Image insertion ----
-  const onImagePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  /* ----- Derived ----- */
+  const pageData = activePage(doc);
+  const selectedNode = useMemo(
+    () =>
+      selectedIds.length === 1
+        ? pageData.nodes.find((n) => n.id === selectedIds[0]) ?? null
+        : null,
+    [pageData, selectedIds],
+  );
+
+  const commitText = () => {
+    if (!editingText) return;
+    const node = pageData.nodes.find((n) => n.id === editingText.id);
+    if (node) {
+      if (editingText.value.trim() === "") {
+        store.getState().deleteNodes([node.id]);
+      } else {
+        store.getState().pushHistory();
+        store.getState().updateNodesLive([node.id], { text: editingText.value });
+      }
+    }
+    setEditingText(null);
+    store.getState().setTool("select");
+  };
+
+  const onPickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const target = imageTargetRef.current ?? { x: 80, y: 80 };
+    imageTargetRef.current = null;
+    e.target.value = "";
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const src = reader.result as string;
+      const node = defaultNode("image", target.x, target.y);
+      node.src = String(reader.result);
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, 400 / Math.max(img.width, img.height));
-        const node = defaultNode("image", 100, 100);
-        node.src = src;
-        node.name = f.name;
-        node.w = img.width * scale;
-        node.h = img.height * scale;
-        addNode(node);
+        const scale = Math.min(1, 480 / img.width);
+        node.w = Math.round(img.width * scale);
+        node.h = Math.round(img.height * scale);
+        store.getState().addNode(node);
       };
-      img.src = src;
+      img.src = node.src;
     };
-    reader.readAsDataURL(f);
-    e.target.value = "";
+    reader.readAsDataURL(file);
   };
 
-  // ---- Export selection (or whole page) as PNG ----
-  const exportPng = () => {
-    const page = doc.pages.find((p) => p.id === doc.activePageId);
-    const nodes = page?.nodes ?? [];
-    if (nodes.length === 0) {
-      toast.error("Nothing to export yet");
-      return;
+  const updateSelected = (patch: Partial<DesignNode>) =>
+    store.getState().updateNodesLive(selectedIds, patch);
+
+  const shareUrl = useMemo(
+    () => `${window.location.origin}/design/${fileId}`,
+    [fileId],
+  );
+
+  const copyShare = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
     }
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const n of nodes) {
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + n.w);
-      maxY = Math.max(maxY, n.y + n.h);
-    }
-    const pad = 24;
-    const w = maxX - minX + pad * 2;
-    const h = maxY - minY + pad * 2;
-    const off = document.createElement("canvas");
-    const scale = 2;
-    off.width = w * scale;
-    off.height = h * scale;
-    const ctx = off.getContext("2d")!;
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    renderDoc(
-      ctx,
-      { ...doc, pages: [{ ...page!, nodes }] },
-      { zoom: 1, panX: -minX + pad, panY: -minY + pad },
-      w,
-      h,
-      1,
-      {},
-    );
-    const a = document.createElement("a");
-    a.href = off.toDataURL("image/png");
-    a.download = `${(file?.name ?? "design").replace(/\s+/g, "-").toLowerCase()}.png`;
-    a.click();
-    toast.success("Exported PNG");
   };
 
-  const selectedNodes = useMemo(() => {
-    const page = doc.pages.find((p) => p.id === doc.activePageId);
-    return (page?.nodes ?? []).filter((n) => selectedIds.includes(n.id));
-  }, [doc, selectedIds]);
+  const fitView = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const t = fitTransform(store.getState().doc, el.clientWidth, el.clientHeight);
+    store.getState().setViewport(t.zoom, t.panX, t.panY);
+  };
 
-  const activePageObj = doc.pages.find((p) => p.id === doc.activePageId);
-
-  // ---- Loading state ----
-  if (file === undefined) {
+  /* ----- Present mode (all hooks above; safe early return) ----- */
+  if (presenting) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Skeleton className="h-10 w-64" />
-      </div>
-    );
-  }
-  if (file === null) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
-        <p className="text-sm text-muted-foreground">
-          This design file doesn't exist or was deleted.
+      <div className="fixed inset-0 z-50 bg-[#0b0b0e]">
+        <PresentCanvas doc={doc} />
+        <p className="absolute left-6 top-6 text-xs text-muted-foreground">
+          {fileRow?.name} — {pageData.name}
         </p>
-        <Button onClick={() => navigate("/dashboard")}>Back to dashboard</Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="absolute bottom-6 left-1/2 -translate-x-1/2 gap-2 rounded-full bg-card/90 px-4 shadow-lg backdrop-blur"
+          onClick={() => setPresenting(false)}
+        >
+          Exit preview (Esc)
+        </Button>
       </div>
     );
   }
-
-  const statusLabel =
-    saving === "saving"
-      ? "Saving…"
-      : dirty
-        ? "Unsaved changes"
-        : `Saved · v${file.version}`;
-
-  const others = (presence ?? []).filter((p) => p.userId !== user?._id);
-
-  const tools: { key: Tool; icon: typeof MousePointer2; label: string; hint: string }[] = [
-    { key: "select", icon: MousePointer2, label: "Select", hint: "V" },
-    { key: "hand", icon: Hand, label: "Pan", hint: "H" },
-    { key: "frame", icon: Frame, label: "Frame", hint: "F" },
-    { key: "rect", icon: Square, label: "Rectangle", hint: "R" },
-    { key: "ellipse", icon: Circle, label: "Ellipse", hint: "O" },
-    { key: "polygon", icon: Pentagon, label: "Polygon", hint: "P" },
-    { key: "line", icon: Slash, label: "Line", hint: "L" },
-    { key: "text", icon: Type, label: "Text", hint: "T" },
-    { key: "image", icon: ImageIcon, label: "Image", hint: "" },
-    { key: "comment", icon: CommentIcon, label: "Comment", hint: "C" },
-  ];
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* Top bar */}
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={() => navigate("/dashboard")}>
-            <ArrowLeftRight className="size-4 rotate-180" />
-          </Button>
-          {editingName ? (
-            <Input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={async () => {
-                setEditingName(false);
-                if (nameDraft.trim() && nameDraft !== file.name) {
-                  await renameFile({ id: file._id as Id<"files">, name: nameDraft.trim() });
-                }
-              }}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              className="h-7 w-56"
-            />
-          ) : (
-            <button
-              className="truncate rounded px-2 py-1 text-sm font-medium hover:bg-accent"
-              onClick={() => {
-                setNameDraft(file.name);
-                setEditingName(true);
-              }}
-              title="Rename file"
-            >
-              {file.name}
-            </button>
-          )}
-          <span className="text-xs text-muted-foreground">· {statusLabel}</span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          {/* Undo / redo */}
-          <Button variant="ghost" size="icon-sm" onClick={undo} disabled={editor.past.length === 0} title="Undo (⌘Z)">
-            <Undo2 className="size-4" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={redo} disabled={editor.future.length === 0} title="Redo (⇧⌘Z)">
-            <Redo2 className="size-4" />
-          </Button>
+    <TooltipProvider>
+      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        {/* ===== Top bar ===== */}
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 bg-card/70 px-3">
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setHistoryOpen(true)}
-            title="Version history"
+            onClick={() => {
+              leavePresence({ fileId: fileId as Id<"files"> });
+              navigate("/dashboard");
+            }}
           >
-            <History className="size-4" />
+            <ArrowLeft className="size-4" />
           </Button>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              if (fileRow && name.trim() && name !== fileRow.name)
+                renameFile({ id: fileId as Id<"files">, name });
+            }}
+            className="h-8 w-52 border-transparent bg-transparent px-2 text-sm font-medium hover:border-border/70"
+          />
+          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                dirty ? "animate-pulse bg-amber-400" : "bg-emerald-400",
+              )}
+            />
+            {dirty ? "Saving…" : "All changes saved"}
+          </span>
 
-          <Separator orientation="vertical" className="mx-1 h-5" />
+          <div className="mx-2 flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canUndo}
+                  onClick={() => store.getState().undo()}
+                >
+                  <Undo2 className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Undo (⌘Z)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canRedo}
+                  onClick={() => store.getState().redo()}
+                >
+                  <Redo2 className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Redo (⇧⌘Z)</TooltipContent>
+            </Tooltip>
+          </div>
 
           {/* Collaborators */}
           <div className="flex items-center -space-x-1.5">
-            {others.slice(0, 4).map((p) => (
-              <span
-                key={p.userId}
-                title={p.name}
-                className="flex size-6 items-center justify-center rounded-full border-2 border-background text-[10px] font-semibold text-white"
-                style={{ backgroundColor: p.color }}
-              >
-                {p.name.slice(0, 1).toUpperCase()}
-              </span>
-            ))}
-            {others.length > 4 && (
-              <span className="flex size-6 items-center justify-center rounded-full border-2 border-background bg-secondary text-[10px] font-semibold">
-                +{others.length - 4}
-              </span>
-            )}
-          </div>
-
-          {/* Zoom */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1 px-2 text-xs">
-                {Math.round(zoom * 100)}%
-                <ChevronDown className="size-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {[0.25, 0.5, 1, 2].map((z) => (
-                <DropdownMenuItem
-                  key={z}
-                  className="cursor-pointer"
-                  onClick={() => {
-                    const cx = viewW / 2;
-                    const cy = viewH / 2;
-                    const pageX = (cx - panX) / zoom;
-                    const pageY = (cy - panY) / zoom;
-                    setViewport(z, cx - pageX * z, cy - pageY * z);
-                  }}
-                >
-                  {z * 100}%
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="cursor-pointer"
-                onClick={() => {
-                  const t = fitTransform(doc, viewW, viewH);
-                  setViewport(t.zoom, t.panX, t.panY);
-                }}
-              >
-                Fit to screen
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button
-            size="sm"
-            className="gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
-            onClick={() => setShareOpen(true)}
-          >
-            <Share2 className="size-3.5" />
-            Share
-          </Button>
-        </div>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        {/* Left panel: tools + layers + pages */}
-        <aside className="flex w-60 shrink-0 flex-col border-r border-border/70">
-          <div className="grid grid-cols-5 gap-0.5 border-b border-border/70 p-1.5">
-            {tools.map((t) => (
-              <button
-                key={t.key}
-                title={`${t.label}${t.hint ? ` (${t.hint})` : ""}`}
-                className={cn(
-                  "flex items-center justify-center rounded-md py-1.5 transition-colors",
-                  tool === t.key
-                    ? "bg-violet-500/20 text-violet-300"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                onClick={() => setTool(t.key)}
-              >
-                <t.icon className="size-4" />
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Pages
-            </span>
-            <button
-              className="text-muted-foreground hover:text-foreground"
-              onClick={addPage}
-              title="Add page"
-            >
-              <Plus className="size-3.5" />
-            </button>
-          </div>
-          <div className="thin-scroll max-h-36 overflow-y-auto px-1.5">
-            {doc.pages.map((p) => (
-              <div
-                key={p.id}
-                className={cn(
-                  "group flex items-center gap-1 rounded px-2 py-1 text-xs",
-                  p.id === doc.activePageId
-                    ? "bg-violet-500/15 text-violet-200"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                <button
-                  className="min-w-0 flex-1 truncate text-left"
-                  onClick={() => setPage(p.id)}
-                  onDoubleClick={() => {
-                    const name = window.prompt("Page name", p.name);
-                    if (name?.trim()) renamePage(p.id, name.trim());
-                  }}
-                >
-                  {p.name}
-                </button>
-                {doc.pages.length > 1 && (
-                  <button
-                    className="opacity-0 group-hover:opacity-100"
-                    onClick={() => deletePage(p.id)}
-                    title="Delete page"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center justify-between px-3 pb-1 pt-3">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Layers
-            </span>
-            <span className="text-[10px] text-muted-foreground">
-              {activePageObj?.nodes.length ?? 0}
-            </span>
-          </div>
-          <ScrollArea className="min-h-0 flex-1 px-1.5 pb-2">
-            <div className="flex flex-col">
-              {[...(activePageObj?.nodes ?? [])].reverse().map((n) => (
-                <div
-                  key={n.id}
-                  className={cn(
-                    "group flex items-center gap-1.5 rounded px-2 py-1 text-xs",
-                    selectedIds.includes(n.id)
-                      ? "bg-violet-500/15 text-violet-200"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                  onClick={(e) =>
-                    select(
-                      e.shiftKey
-                        ? selectedIds.includes(n.id)
-                          ? selectedIds.filter((i) => i !== n.id)
-                          : [...selectedIds, n.id]
-                        : [n.id],
-                    )
-                  }
-                  onMouseEnter={() => setHover(n.id)}
-                  onMouseLeave={() => setHover(null)}
-                >
-                  <ShapeIcon type={n.type} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {n.text ?? n.name}
-                  </span>
-                  <button
-                    className="opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateNodesLive([n.id], { hidden: !n.hidden });
-                    }}
-                    title={n.hidden ? "Show" : "Hide"}
-                  >
-                    {n.hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                  </button>
-                  <button
-                    className="opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateNodesLive([n.id], { locked: !n.locked });
-                    }}
-                    title={n.locked ? "Unlock" : "Lock"}
-                  >
-                    <Lock className={cn("size-3", n.locked && "text-amber-400")} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-
-          {selectedNodes.length === 1 && (
-            <div className="flex items-center justify-center gap-0.5 border-t border-border/70 py-1.5">
-              <Button variant="ghost" size="icon-sm" title="Bring to front" onClick={() => reorder(selectedIds[0], "front")}>
-                <ChevronUp className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon-sm" title="Send to back" onClick={() => reorder(selectedIds[0], "back")}>
-                <ChevronDown className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon-sm" title="Duplicate (⌘D)" onClick={() => duplicateNodes(selectedIds)}>
-                <Copy className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon-sm" title="Delete" onClick={() => deleteNodes(selectedIds)}>
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          )}
-        </aside>
-
-        {/* Canvas */}
-        <div ref={wrapRef} className="relative min-w-0 flex-1 overflow-hidden">
-          <canvas
-            ref={canvasRef}
-            className={cn(
-              "absolute inset-0 touch-none",
-              tool === "hand" ? "cursor-grab" : tool === "select" ? "cursor-default" : "cursor-crosshair",
-            )}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onWheel={onWheel}
-          />
-
-          {/* Remote cursors */}
-          {(presence ?? [])
-            .filter((p) => p.userId !== user?._id)
-            .map((p) => {
-              const sx = p.x * zoom + panX;
-              const sy = p.y * zoom + panY;
-              if (sx < -40 || sy < -40 || sx > viewW + 40 || sy > viewH + 40) return null;
-              return (
-                <div
-                  key={p.userId}
-                  className="pointer-events-none absolute z-10"
-                  style={{ left: sx, top: sy }}
-                >
-                  <MousePointer2
-                    className="size-4"
-                    style={{ color: p.color, fill: p.color }}
-                  />
+            {(presence ?? []).slice(0, 4).map((p) => (
+              <Tooltip key={p.userId}>
+                <TooltipTrigger asChild>
                   <span
-                    className="absolute left-4 top-4 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                    className="flex size-6 items-center justify-center rounded-full border-2 border-background text-[10px] font-bold text-white"
                     style={{ backgroundColor: p.color }}
                   >
-                    {p.name}
+                    {p.name.slice(0, 1).toUpperCase()}
                   </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {p.name}
+                  {p.userId === user?._id ? " (you)" : ""}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+            {(presence?.length ?? 0) > 4 && (
+              <span className="flex size-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-semibold">
+                +{(presence?.length ?? 0) - 4}
+              </span>
+            )}
+          </div>
+
+          <div className="ml-auto flex items-center gap-1">
+            <DropdownMenu open={historyOpen} onOpenChange={setHistoryOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-muted-foreground"
+                >
+                  <History className="size-4" />
+                  <span className="hidden md:inline">History</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Version history</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="thin-scroll max-h-72 overflow-y-auto">
+                  {(versions ?? []).map((v) => (
+                    <DropdownMenuItem
+                      key={v._id}
+                      className="cursor-pointer"
+                      onClick={() => {
+                        restoreVersion({ versionId: v._id });
+                        setHistoryOpen(false);
+                      }}
+                    >
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <span className="truncate">{v.label}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          v{v.version} · {timeAgo(v.createdAt)}
+                        </span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                  {(versions ?? []).length === 0 && (
+                    <p className="px-2 py-3 text-xs text-muted-foreground">
+                      Versions appear here as the file is edited and saved.
+                    </p>
+                  )}
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => {
+                    snapshotVersion({
+                      id: fileId as Id<"files">,
+                      label: "Manual save",
+                    });
+                    setHistoryOpen(false);
+                  }}
+                >
+                  <Plus className="mr-2 size-4" />
+                  Save version now (⌘S)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={() => setExportOpen(true)}
+            >
+              <Download className="size-4" />
+              <span className="hidden md:inline">Export</span>
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={() => setPresenting(true)}
+            >
+              <Eye className="size-4" />
+              <span className="hidden md:inline">Present</span>
+            </Button>
+
+            <Button
+              size="sm"
+              className="gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="size-3.5" />
+              Share
+            </Button>
+          </div>
+        </header>
+
+        {/* ===== Body ===== */}
+        <div className="flex min-h-0 flex-1">
+          {/* Tool rail */}
+          <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border/60 bg-card/40 py-3">
+            {(
+              [
+                { t: "select", icon: MousePointer2, label: "Move (V)" },
+                { t: "hand", icon: Move, label: "Hand (H)" },
+                { t: "frame", icon: Frame, label: "Frame (F)" },
+                { t: "rect", icon: Square, label: "Rectangle (R)" },
+                { t: "ellipse", icon: Circle, label: "Ellipse (O)" },
+                { t: "line", icon: Minus, label: "Line (L)" },
+                { t: "polygon", icon: Pentagon, label: "Polygon (P)" },
+                { t: "text", icon: Type, label: "Text (T)" },
+                { t: "image", icon: ImageIcon, label: "Image (I)" },
+                { t: "comment", icon: MessageCircle, label: "Comment (C)" },
+              ] as { t: Tool; icon: typeof Square; label: string }[]
+            ).map(({ t, icon: Icon, label }) => (
+              <Tooltip key={t}>
+                <TooltipTrigger asChild>
+                  <button
+                    className={cn(
+                      "flex size-9 items-center justify-center rounded-lg transition-colors",
+                      tool === t
+                        ? "bg-violet-500/20 text-violet-300"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                    onClick={() => store.getState().setTool(t)}
+                  >
+                    <Icon className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{label}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+
+          {/* Pages + layers */}
+          <aside className="thin-scroll w-56 shrink-0 overflow-y-auto border-r border-border/60 bg-card/40">
+            <div className="p-3">
+              <SectionLabel>Pages</SectionLabel>
+              <div className="mt-2 space-y-0.5">
+                {doc.pages.map((p) => (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
+                      p.id === doc.activePageId
+                        ? "bg-violet-500/15 text-violet-200"
+                        : "text-muted-foreground hover:bg-accent",
+                    )}
+                    onClick={() => store.getState().setPage(p.id)}
+                  >
+                    <Layers className="size-3.5 shrink-0" />
+                    <span className="flex-1 truncate">{p.name}</span>
+                    {doc.pages.length > 1 && (
+                      <button
+                        className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          store.getState().deletePage(p.id);
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => store.getState().addPage()}
+                >
+                  <Plus className="size-3.5" />
+                  New page
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-border/60 p-3">
+              <SectionLabel>Layers</SectionLabel>
+              <div className="mt-2 space-y-0.5">
+                {pageData.nodes.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    Empty page — pick a tool and drag on the canvas.
+                  </p>
+                )}
+                {[...pageData.nodes].reverse().map((n) => {
+                  const Icon = NODE_ICONS[n.type] ?? Square;
+                  return (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        "group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
+                        selectedIds.includes(n.id)
+                          ? "bg-violet-500/15 text-violet-200"
+                          : "text-muted-foreground hover:bg-accent",
+                      )}
+                      onClick={(e) =>
+                        store
+                          .getState()
+                          .select(
+                            e.shiftKey ? [...selectedIds, n.id] : [n.id],
+                          )
+                      }
+                    >
+                      <Icon className="size-3.5 shrink-0" />
+                      <span
+                        className={cn(
+                          "flex-1 truncate",
+                          n.hidden && "line-through opacity-50",
+                        )}
+                      >
+                        {n.type === "text" && n.text
+                          ? n.text.slice(0, 20)
+                          : n.name}
+                      </span>
+                      <button
+                        className={cn(
+                          "transition-opacity hover:text-foreground",
+                          n.hidden
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100",
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          store
+                            .getState()
+                            .updateNodesLive([n.id], { hidden: !n.hidden });
+                        }}
+                      >
+                        {n.hidden ? (
+                          <EyeOff className="size-3" />
+                        ) : (
+                          <Eye className="size-3" />
+                        )}
+                      </button>
+                      <button
+                        className={cn(
+                          "transition-opacity hover:text-foreground",
+                          n.locked
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100",
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          store
+                            .getState()
+                            .updateNodesLive([n.id], { locked: !n.locked });
+                        }}
+                      >
+                        {n.locked ? <Lock className="size-3" /> : <span className="block size-3" />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
+
+          {/* Canvas */}
+          <div
+            ref={wrapRef}
+            className="relative min-h-0 min-w-0 flex-1"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files?.[0];
+              if (!file?.type.startsWith("image/")) return;
+              const rect = canvasRef.current!.getBoundingClientRect();
+              imageTargetRef.current = screenToPage(
+                { zoom, panX, panY },
+                e.clientX - rect.left,
+                e.clientY - rect.top,
+              );
+              const reader = new FileReader();
+              reader.onload = () => {
+                const target = imageTargetRef.current ?? { x: 80, y: 80 };
+                const node = defaultNode("image", target.x, target.y);
+                node.src = String(reader.result);
+                const img = new Image();
+                img.onload = () => {
+                  const scale = Math.min(1, 480 / img.width);
+                  node.w = Math.round(img.width * scale);
+                  node.h = Math.round(img.height * scale);
+                  store.getState().addNode(node);
+                };
+                img.src = node.src;
+              };
+              reader.readAsDataURL(file);
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 h-full w-full touch-none select-none"
+              style={{
+                cursor:
+                  tool === "hand"
+                    ? "grab"
+                    : [
+                          "frame",
+                          "rect",
+                          "ellipse",
+                          "line",
+                          "polygon",
+                          "text",
+                          "image",
+                          "comment",
+                        ].includes(tool)
+                      ? "crosshair"
+                      : "default",
+              }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerLeave={() => store.getState().setHover(null)}
+              onDoubleClick={onDoubleClick}
+              onWheel={onWheel}
+            />
+
+            {/* Text editor overlay */}
+            {editingText &&
+              (() => {
+                const node = pageData.nodes.find(
+                  (n) => n.id === editingText.id,
+                );
+                if (!node) return null;
+                const s = toScreen(node.x, node.y);
+                return (
+                  <textarea
+                    autoFocus
+                    className="absolute resize-none rounded border border-violet-400 bg-background/90 p-0 text-foreground outline-none"
+                    style={{
+                      left: s.sx,
+                      top: s.sy,
+                      width: Math.max(node.w * zoom, 120),
+                      fontSize: (node.fontSize ?? 16) * zoom,
+                      fontWeight: node.fontWeight ?? 500,
+                      lineHeight: 1.35,
+                      color: node.color ?? "#f4f4f5",
+                    }}
+                    value={editingText.value}
+                    onChange={(e) =>
+                      setEditingText({ id: editingText.id, value: e.target.value })
+                    }
+                    onBlur={commitText}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") commitText();
+                    }}
+                  />
+                );
+              })()}
+
+            {/* Remote cursors */}
+            {(presence ?? [])
+              .filter((p) => p.userId !== user?._id)
+              .map((p) => {
+                const s = toScreen(p.x, p.y);
+                return (
+                  <div
+                    key={p.userId}
+                    className="pointer-events-none absolute z-10 flex items-center gap-1 transition-all duration-200"
+                    style={{ left: s.sx, top: s.sy }}
+                  >
+                    <MousePointer2
+                      className="size-4 fill-current"
+                      style={{ color: p.color }}
+                    />
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                      style={{ backgroundColor: p.color, color: "#0b0b0e" }}
+                    >
+                      {p.name}
+                    </span>
+                  </div>
+                );
+              })}
+
+            {/* Comment pins */}
+            {(comments ?? []).map((c) => {
+              const s = toScreen(c.x, c.y);
+              return (
+                <div
+                  key={c._id}
+                  className="absolute z-10"
+                  style={{ left: s.sx, top: s.sy }}
+                >
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none border-2 border-background shadow-md transition-transform hover:scale-110",
+                          c.resolved ? "bg-emerald-500" : "bg-amber-400",
+                        )}
+                      >
+                        <MessageCircle className="size-3 text-black" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      <div className="px-2 py-1.5">
+                        <p className="text-xs font-semibold">{c.authorName}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                          {c.body}
+                        </p>
+                        <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                          {timeAgo(c.createdAt)}
+                        </p>
+                      </div>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onClick={() => resolveComment({ id: c._id })}
+                      >
+                        {c.resolved ? "Mark unresolved" : "Mark resolved"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-destructive focus:text-destructive"
+                        onClick={() => removeComment({ id: c._id })}
+                      >
+                        Delete comment
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               );
             })}
 
-          {/* Canvas comments */}
-          {(comments ?? [])
-            .filter((c) => !c.resolved)
-            .map((c) => (
+            {/* New comment composer */}
+            {draftComment && (
               <div
-                key={c._id}
-                className="group absolute z-10"
-                style={{ left: c.x * zoom + panX, top: c.y * zoom + panY }}
+                className="absolute z-20 w-64 rounded-lg border border-border bg-popover p-3 shadow-xl"
+                style={{
+                  left: toScreen(draftComment.x, draftComment.y).sx + 8,
+                  top: toScreen(draftComment.x, draftComment.y).sy + 8,
+                }}
               >
-                <button
-                  className="flex size-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none bg-amber-400 text-[10px] font-bold text-amber-950 shadow-lg"
-                  title={`${c.authorName}: ${c.body}`}
-                  onClick={() => {
-                    if (window.confirm(`Resolve comment by ${c.authorName}?`)) {
-                      void resolveComment({ id: c._id as Id<"comments"> });
+                <Textarea
+                  autoFocus
+                  rows={3}
+                  placeholder="Share feedback…"
+                  value={draftComment.body}
+                  onChange={(e) =>
+                    setDraftComment({ ...draftComment, body: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      if (draftComment.body.trim()) {
+                        addComment({
+                          fileId: fileId as Id<"files">,
+                          x: draftComment.x,
+                          y: draftComment.y,
+                          body: draftComment.body,
+                        });
+                      }
+                      setDraftComment(null);
                     }
                   }}
-                >
-                  💬
-                </button>
+                />
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">
+                    ⌘↵ to post
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDraftComment(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!draftComment.body.trim()}
+                      className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white"
+                      onClick={() => {
+                        addComment({
+                          fileId: fileId as Id<"files">,
+                          x: draftComment.x,
+                          y: draftComment.y,
+                          body: draftComment.body,
+                        });
+                        setDraftComment(null);
+                        store.getState().setTool("select");
+                      }}
+                    >
+                      Post
+                    </Button>
+                  </div>
+                </div>
               </div>
-            ))}
+            )}
 
-          {/* Zoom widget */}
-          <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-lg border border-border/70 bg-popover/90 p-1 backdrop-blur">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => {
-                const cx = viewW / 2;
-                const cy = viewH / 2;
-                const pageX = (cx - panX) / zoom;
-                const pageY = (cy - panY) / zoom;
-                const z = Math.max(0.05, zoom * 0.8);
-                setViewport(z, cx - pageX * z, cy - pageY * z);
-              }}
-            >
-              <Minus className="size-3.5" />
-            </Button>
-            <span className="w-12 text-center text-xs tabular-nums">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => {
-                const cx = viewW / 2;
-                const cy = viewH / 2;
-                const pageX = (cx - panX) / zoom;
-                const pageY = (cy - panY) / zoom;
-                const z = Math.min(8, zoom * 1.25);
-                setViewport(z, cx - pageX * z, cy - pageY * z);
-              }}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-            <Separator orientation="vertical" className="mx-0.5 h-4" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Export PNG"
-              onClick={exportPng}
-            >
-              <Save className="size-3.5" />
-            </Button>
+            {/* Zoom pill */}
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border/60 bg-card/90 px-2 py-1 shadow-lg backdrop-blur">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6"
+                onClick={() =>
+                  store
+                    .getState()
+                    .setViewport(Math.max(0.05, zoom - 0.1), panX, panY)
+                }
+              >
+                <Minus className="size-3.5" />
+              </Button>
+              <button
+                className="w-12 text-center text-xs tabular-nums"
+                onClick={() => store.getState().setViewport(1, panX, panY)}
+                title="Reset to 100%"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6"
+                onClick={() =>
+                  store
+                    .getState()
+                    .setViewport(Math.min(8, zoom + 0.1), panX, panY)
+                }
+              >
+                <Plus className="size-3.5" />
+              </Button>
+              <span className="mx-0.5 h-4 w-px bg-border" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6"
+                onClick={fitView}
+                title="Zoom to fit"
+              >
+                <MoveVertical className="size-3.5" />
+              </Button>
+            </div>
           </div>
 
-          {/* Activity indicator */}
-          {others.length > 0 && (
-            <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-border/70 bg-popover/90 px-3 py-1.5 text-xs backdrop-blur">
-              <Users className="size-3.5 text-emerald-400" />
-              {others.length} other{others.length > 1 ? "s" : ""} editing
-            </div>
-          )}
-        </div>
-
-        {/* Right panel: properties */}
-        <aside className="thin-scroll w-64 shrink-0 overflow-y-auto border-l border-border/70 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {selectedNodes.length === 0
-              ? "Page"
-              : selectedNodes.length === 1
-                ? selectedNodes[0].type
-                : `${selectedNodes.length} selected`}
-          </p>
-
-          {selectedNodes.length === 0 && (
-            <div className="mt-3 space-y-3">
-              <label className="block text-xs text-muted-foreground">
-                Canvas background
-                <input
-                  type="color"
-                  value={doc.background}
-                  onChange={(e) => adoptDoc({ ...doc, background: e.target.value })}
-                  className="mt-1 h-8 w-full cursor-pointer rounded border border-input bg-transparent"
-                />
-              </label>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Select a layer to edit its properties, or pick a tool and draw
-                on the canvas. Everything autosaves.
-              </p>
-            </div>
-          )}
-
-          {selectedNodes.length === 1 && (
-            <div className="mt-3 space-y-4 text-xs">
-              {/* Position & size */}
-              <div className="grid grid-cols-2 gap-2">
-                {(
-                  [
-                    ["X", "x"],
-                    ["Y", "y"],
-                    ["W", "w"],
-                    ["H", "h"],
-                  ] as const
-                ).map(([label, key]) => (
-                  <label key={key} className="block">
-                    <span className="text-[10px] uppercase text-muted-foreground">
-                      {label}
-                    </span>
-                    <input
-                      type="number"
-                      className="input-numeric mt-0.5 h-7 w-full rounded border border-input bg-transparent px-1.5 text-xs"
-                      value={Math.round(selectedNodes[0][key])}
-                      onChange={(e) =>
-                        updateNodesLive([selectedNodes[0].id], {
-                          [key]: Number(e.target.value),
-                        })
-                      }
+          {/* Inspector */}
+          <aside className="thin-scroll w-64 shrink-0 overflow-y-auto border-l border-border/60 bg-card/40">
+            <div className="space-y-5 p-4">
+              {selectedNode ? (
+                <>
+                  <div>
+                    <SectionLabel>Layer</SectionLabel>
+                    <Input
+                      className="mt-2 h-8 text-xs"
+                      value={selectedNode.name}
+                      onChange={(e) => updateSelected({ name: e.target.value })}
                     />
-                  </label>
-                ))}
-              </div>
+                  </div>
 
-              {/* Fill / stroke */}
-              <label className="block">
-                <span className="text-[10px] uppercase text-muted-foreground">Fill</span>
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    type="color"
-                    className="h-7 w-9 cursor-pointer rounded border border-input bg-transparent"
-                    value={selectedNodes[0].fill ?? "#8b5cf6"}
-                    onChange={(e) =>
-                      updateNodesLive([selectedNodes[0].id], { fill: e.target.value })
-                    }
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 flex-1 text-xs"
-                    onClick={() =>
-                      updateNodesLive([selectedNodes[0].id], { fill: null })
-                    }
-                  >
-                    None
-                  </Button>
-                </div>
-              </label>
-
-              <label className="block">
-                <span className="text-[10px] uppercase text-muted-foreground">Stroke</span>
-                <div className="mt-1 flex items-center gap-2">
-                  <input
-                    type="color"
-                    className="h-7 w-9 cursor-pointer rounded border border-input bg-transparent"
-                    value={selectedNodes[0].stroke ?? "#ffffff"}
-                    onChange={(e) =>
-                      updateNodesLive([selectedNodes[0].id], {
-                        stroke: e.target.value,
-                        strokeWidth: selectedNodes[0].strokeWidth || 1,
-                      })
-                    }
-                  />
-                  <input
-                    type="number"
-                    className="input-numeric h-7 w-16 rounded border border-input bg-transparent px-1.5"
-                    value={selectedNodes[0].strokeWidth}
-                    min={0}
-                    onChange={(e) =>
-                      updateNodesLive([selectedNodes[0].id], {
-                        strokeWidth: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-              </label>
-
-              {/* Radius + opacity */}
-              {selectedNodes[0].type !== "line" && (
-                <label className="block">
-                  <span className="text-[10px] uppercase text-muted-foreground">
-                    Corner radius · {selectedNodes[0].radius}
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={80}
-                    value={selectedNodes[0].radius}
-                    onChange={(e) =>
-                      updateNodesLive([selectedNodes[0].id], {
-                        radius: Number(e.target.value),
-                      })
-                    }
-                    className="mt-1 w-full accent-violet-500"
-                  />
-                </label>
-              )}
-
-              <label className="block">
-                <span className="text-[10px] uppercase text-muted-foreground">
-                  Opacity · {Math.round(selectedNodes[0].opacity * 100)}%
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={Math.round(selectedNodes[0].opacity * 100)}
-                  onChange={(e) =>
-                    updateNodesLive([selectedNodes[0].id], {
-                      opacity: Number(e.target.value) / 100,
-                    })
-                  }
-                  className="mt-1 w-full accent-violet-500"
-                />
-              </label>
-
-              {/* Polygon sides */}
-              {selectedNodes[0].type === "polygon" && (
-                <label className="block">
-                  <span className="text-[10px] uppercase text-muted-foreground">
-                    Sides · {selectedNodes[0].points ?? 3}
-                  </span>
-                  <input
-                    type="range"
-                    min={3}
-                    max={12}
-                    value={selectedNodes[0].points ?? 3}
-                    onChange={(e) =>
-                      updateNodesLive([selectedNodes[0].id], {
-                        points: Number(e.target.value),
-                      })
-                    }
-                    className="mt-1 w-full accent-violet-500"
-                  />
-                </label>
-              )}
-
-              {/* Text */}
-              {selectedNodes[0].type === "text" && (
-                <div className="space-y-2">
-                  <label className="block">
-                    <span className="text-[10px] uppercase text-muted-foreground">Content</span>
-                    <Textarea
-                      className="mt-1 min-h-16 text-xs"
-                      value={selectedNodes[0].text ?? ""}
-                      onChange={(e) =>
-                        updateNodesLive([selectedNodes[0].id], {
-                          text: e.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label>
-                      <span className="text-[10px] uppercase text-muted-foreground">Size</span>
-                      <input
-                        type="number"
-                        className="input-numeric mt-0.5 h-7 w-full rounded border border-input bg-transparent px-1.5"
-                        value={selectedNodes[0].fontSize ?? 16}
-                        onChange={(e) =>
-                          updateNodesLive([selectedNodes[0].id], {
-                            fontSize: Number(e.target.value),
+                  <div>
+                    <SectionLabel>Position & size</SectionLabel>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <NumField
+                        label="X"
+                        value={selectedNode.x}
+                        onChange={(v) => updateSelected({ x: v })}
+                      />
+                      <NumField
+                        label="Y"
+                        value={selectedNode.y}
+                        onChange={(v) => updateSelected({ y: v })}
+                      />
+                      <NumField
+                        label="W"
+                        value={selectedNode.w}
+                        onChange={(v) => updateSelected({ w: Math.max(1, v) })}
+                      />
+                      <NumField
+                        label="H"
+                        value={selectedNode.h}
+                        onChange={(v) =>
+                          updateSelected({
+                            h: selectedNode.type === "line" ? v : Math.max(1, v),
                           })
                         }
                       />
-                    </label>
-                    <label>
-                      <span className="text-[10px] uppercase text-muted-foreground">Weight</span>
-                      <select
-                        className="mt-0.5 h-7 w-full rounded border border-input bg-transparent px-1"
-                        value={selectedNodes[0].fontWeight ?? 500}
+                      <NumField
+                        label="R"
+                        value={selectedNode.rotation ?? 0}
+                        onChange={(v) => updateSelected({ rotation: v })}
+                      />
+                      <NumField
+                        label="⌒"
+                        value={selectedNode.radius}
+                        onChange={(v) =>
+                          updateSelected({ radius: Math.max(0, v) })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <SectionLabel>Appearance</SectionLabel>
+                    <div className="mt-2 space-y-2">
+                      <label className="flex items-center justify-between text-xs text-muted-foreground">
+                        Opacity
+                        <span className="tabular-nums">
+                          {Math.round(selectedNode.opacity * 100)}%
+                        </span>
+                      </label>
+                      <Slider
+                        value={[selectedNode.opacity * 100]}
+                        onValueChange={([v]) =>
+                          updateSelected({ opacity: v / 100 })
+                        }
+                      />
+                      <div className="grid grid-cols-6 gap-1">
+                        {SWATCHES.map((c) => (
+                          <button
+                            key={c}
+                            className={cn(
+                              "size-5 rounded border border-border/70 transition-transform hover:scale-110",
+                              (selectedNode.type === "text"
+                                ? selectedNode.color
+                                : selectedNode.fill) === c &&
+                                "ring-2 ring-violet-400",
+                            )}
+                            style={{ backgroundColor: c }}
+                            title={c}
+                            onClick={() =>
+                              updateSelected(
+                                selectedNode.type === "text"
+                                  ? { color: c }
+                                  : { fill: c },
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <NumField
+                          label="SW"
+                          value={selectedNode.strokeWidth}
+                          min={0}
+                          onChange={(v) =>
+                            updateSelected({ strokeWidth: Math.max(0, v) })
+                          }
+                        />
+                        <div className="flex h-8 items-center gap-1.5 rounded-md border border-border/70 bg-background/60 px-2">
+                          <input
+                            type="color"
+                            className="size-4 cursor-pointer bg-transparent"
+                            value={selectedNode.stroke ?? "#ffffff"}
+                            onChange={(e) =>
+                              updateSelected({ stroke: e.target.value })
+                            }
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            Stroke
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <NumField
+                          label="Sh"
+                          value={selectedNode.shadowBlur ?? 0}
+                          min={0}
+                          max={80}
+                          onChange={(v) =>
+                            updateSelected({ shadowBlur: Math.max(0, v) })
+                          }
+                        />
+                        <div className="flex h-8 items-center gap-1.5 rounded-md border border-border/70 bg-background/60 px-2">
+                          <input
+                            type="color"
+                            className="size-4 cursor-pointer bg-transparent"
+                            value={selectedNode.shadowColor ?? "#000000"}
+                            onChange={(e) =>
+                              updateSelected({ shadowColor: e.target.value })
+                            }
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            Shadow
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedNode.type === "text" && (
+                    <div>
+                      <SectionLabel>Typography</SectionLabel>
+                      <div className="mt-2 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <NumField
+                            label="Sz"
+                            value={selectedNode.fontSize ?? 16}
+                            min={4}
+                            onChange={(v) =>
+                              updateSelected({ fontSize: Math.max(4, v) })
+                            }
+                          />
+                          <NumField
+                            label="W"
+                            value={selectedNode.fontWeight ?? 500}
+                            min={100}
+                            max={900}
+                            step={100}
+                            onChange={(v) =>
+                              updateSelected({ fontWeight: v })
+                            }
+                          />
+                        </div>
+                        <div className="flex gap-1">
+                          {(["left", "center", "right"] as const).map((a) => (
+                            <button
+                              key={a}
+                              className={cn(
+                                "flex h-8 flex-1 items-center justify-center rounded-md border border-border/70 text-xs capitalize transition-colors",
+                                selectedNode.align === a
+                                  ? "border-violet-400/60 bg-violet-500/10 text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              onClick={() => updateSelected({ align: a })}
+                            >
+                              {a}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedNode.type === "polygon" && (
+                    <div>
+                      <SectionLabel>Polygon</SectionLabel>
+                      <NumField
+                        label="Sides"
+                        value={selectedNode.points ?? 3}
+                        min={3}
+                        max={12}
+                        onChange={(v) =>
+                          updateSelected({ points: Math.round(v) })
+                        }
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <SectionLabel>Arrange & actions</SectionLabel>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          store.getState().reorder(selectedNode.id, "front")
+                        }
+                      >
+                        <ArrowUp className="mr-1 size-3.5" /> Front
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          store.getState().reorder(selectedNode.id, "back")
+                        }
+                      >
+                        <ArrowDown className="mr-1 size-3.5" /> Back
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          store.getState().duplicateNodes([selectedNode.id])
+                        }
+                      >
+                        <Copy className="mr-1 size-3.5" /> Duplicate
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() =>
+                          store.getState().deleteNodes([selectedNode.id])
+                        }
+                      >
+                        <Trash2 className="mr-1 size-3.5" /> Delete
+                      </Button>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1.5 w-full"
+                      onClick={() => exportNodePng(doc, selectedNode)}
+                    >
+                      <Download className="mr-1.5 size-3.5" />
+                      Export layer PNG @2x
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <SectionLabel>Document</SectionLabel>
+                    <div className="mt-2 flex h-8 items-center justify-between gap-1.5 rounded-md border border-border/70 bg-background/60 px-2 text-xs text-muted-foreground">
+                      <span>Canvas background</span>
+                      <input
+                        type="color"
+                        className="size-4 cursor-pointer bg-transparent"
+                        value={doc.background}
                         onChange={(e) =>
-                          updateNodesLive([selectedNodes[0].id], {
-                            fontWeight: Number(e.target.value),
+                          store.setState({
+                            doc: { ...doc, background: e.target.value },
                           })
                         }
-                      >
-                        {[400, 500, 600, 700, 800].map((wgt) => (
-                          <option key={wgt} value={wgt}>
-                            {wgt}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                      />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                      Select a layer to edit its properties. Everything is saved
+                      and shared live with collaborators.
+                    </p>
                   </div>
-                  <div className="flex gap-1">
-                    {(["left", "center", "right"] as const).map((a) => (
-                      <button
-                        key={a}
+                  <div>
+                    <SectionLabel>Publish status</SectionLabel>
+                    <div className="mt-2 flex items-center gap-2 rounded-md border border-border/70 bg-background/60 p-2.5 text-xs">
+                      <Globe
                         className={cn(
-                          "flex-1 rounded border px-1 py-1 capitalize",
-                          (selectedNodes[0].align ?? "left") === a
-                            ? "border-violet-400 text-violet-300"
-                            : "border-border text-muted-foreground",
+                          "size-4",
+                          fileRow?.published
+                            ? "text-emerald-400"
+                            : "text-muted-foreground",
                         )}
-                        onClick={() =>
-                          updateNodesLive([selectedNodes[0].id], { align: a })
-                        }
-                      >
-                        {a}
-                      </button>
-                    ))}
+                      />
+                      <span className="flex-1 text-muted-foreground">
+                        {fileRow?.published
+                          ? "Visible in the Explore catalog"
+                          : "Private to your workspace"}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      onClick={() =>
+                        fileRow?.published
+                          ? unpublishFile({ id: fileId as Id<"files"> })
+                          : setShareOpen(true)
+                      }
+                    >
+                      {fileRow?.published ? "Unpublish" : "Publish settings"}
+                    </Button>
                   </div>
                 </div>
               )}
             </div>
-          )}
-
-          {selectedNodes.length > 1 && (
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              Multiple layers selected. Drag to move them together, or press
-              ⌘D to duplicate.
-            </p>
-          )}
-        </aside>
+          </aside>
+        </div>
       </div>
 
-      {/* Hidden image input */}
+      {/* Hidden file input for image import */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={onImagePicked}
+        onChange={onPickImage}
       />
 
-      {/* Comment composer */}
-      <Dialog
-        open={pendingComment !== null}
-        onOpenChange={(open) => !open && setPendingComment(null)}
-      >
+      {/* Export dialog */}
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Add a comment</DialogTitle>
+            <DialogTitle>Export assets</DialogTitle>
             <DialogDescription>
-              Pin feedback to this spot on the canvas for your team.
+              Hand off production-ready assets to developers, or take the file
+              with you.
             </DialogDescription>
           </DialogHeader>
-          <Textarea
-            autoFocus
-            placeholder="Share feedback, ask a question…"
-            value={pendingComment?.body ?? ""}
-            onChange={(e) =>
-              setPendingComment((pc) => (pc ? { ...pc, body: e.target.value } : pc))
-            }
-          />
-          <DialogFooter>
+          <div className="grid gap-2">
             <Button
-              disabled={!pendingComment?.body.trim()}
-              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
-              onClick={async () => {
-                if (!pendingComment?.body.trim() || !fileId) return;
-                await addComment({
-                  fileId: fileId as Id<"files">,
-                  x: pendingComment.x,
-                  y: pendingComment.y,
-                  body: pendingComment.body.trim(),
-                });
-                setPendingComment(null);
-                toast.success("Comment added");
+              variant="outline"
+              onClick={() => {
+                exportPng(doc, fileRow?.name ?? "design");
+                setExportOpen(false);
               }}
             >
-              Post comment
+              <Download className="mr-2 size-4" /> PNG @2x — current page
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Version history */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Version history</DialogTitle>
-            <DialogDescription>
-              DesignBox snapshots your work automatically. Restore any point in
-              time.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="thin-scroll max-h-72 space-y-1 overflow-y-auto">
-            {versions === undefined ? (
-              <Skeleton className="h-10 w-full" />
-            ) : versions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No versions yet.</p>
-            ) : (
-              versions.map((v) => (
-                <div
-                  key={v._id}
-                  className="flex items-center justify-between rounded-md border border-border/70 px-3 py-2"
-                >
-                  <div>
-                    <p className="text-xs font-medium">{v.label}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      v{v.version} · {new Date(v.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      await restoreVersion({
-                        versionId: v._id as Id<"docVersions">,
-                      });
-                      setHistoryOpen(false);
-                      toast.success("Version restored");
-                    }}
-                  >
-                    Restore
-                  </Button>
-                </div>
-              ))
-            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                exportCss(doc, fileRow?.name ?? "design");
+                setExportOpen(false);
+              }}
+            >
+              <Square className="mr-2 size-4" /> CSS for current page
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                downloadJson(doc, fileRow?.name ?? "design");
+                setExportOpen(false);
+              }}
+            >
+              <Frame className="mr-2 size-4" /> DesignBox document (.json)
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Share dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Share this design</DialogTitle>
+            <DialogTitle>Share “{fileRow?.name}”</DialogTitle>
             <DialogDescription>
-              Anyone with the link can open this file and edit it with you in
+              Anyone with this link can open the file and design with you in
               real time.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">
-            <Input readOnly value={window.location.href} className="text-xs" />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
-                toast.success("Link copied");
-              }}
-            >
-              <Clipboard className="size-4" />
+            <Input readOnly value={shareUrl} className="flex-1 text-xs" />
+            <Button variant="outline" size="icon" onClick={copyShare}>
+              <Link2 className="size-4" />
             </Button>
           </div>
-          <DialogFooter>
-            {file.published ? (
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  await unpublishFile({ id: file._id as Id<"files"> });
-                  toast.success("Removed from Explore");
-                }}
-              >
-                Unpublish from Explore
-              </Button>
-            ) : (
-              <Button
-                className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
-                onClick={async () => {
-                  await publishFile({
-                    id: file._id as Id<"files">,
+          {shareCopied && (
+            <p className="text-xs text-emerald-400">
+              Link copied to clipboard.
+            </p>
+          )}
+          <DialogFooter className="flex-col items-stretch gap-3 sm:flex-col">
+            <Input
+              placeholder="Tags, comma separated (e.g. mobile, checkout)"
+              value={publishTags}
+              onChange={(e) => setPublishTags(e.target.value)}
+              className="text-xs"
+            />
+            <Button
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              onClick={() => {
+                if (fileRow?.published) {
+                  unpublishFile({ id: fileId as Id<"files"> });
+                } else {
+                  publishFile({
+                    id: fileId as Id<"files">,
                     description: undefined,
-                    tags: [],
+                    tags: publishTags
+                      .split(",")
+                      .map((t) => t.trim().toLowerCase())
+                      .filter(Boolean)
+                      .slice(0, 5),
                   });
-                  toast.success("Published to Explore");
-                }}
-              >
-                Publish to Explore
-              </Button>
-            )}
+                }
+              }}
+            >
+              <Globe className="mr-2 size-4" />
+              {fileRow?.published
+                ? "Unpublish from Explore"
+                : "Publish to Explore"}
+            </Button>
+            <p className="text-center text-[11px] text-muted-foreground">
+              Publishing adds this design to the public Explore catalog with
+              its tags.
+            </p>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </TooltipProvider>
   );
+}
+
+/* ---------- Present-mode canvas: refits content, no chrome ---------- */
+function PresentCanvas({ doc }: { doc: DesignDoc }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const draw = () => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      const t = fitTransform(doc, w, h);
+      renderDoc(ctx, doc, t, w, h, dpr, {});
+    };
+    draw();
+    window.addEventListener("resize", draw);
+    return () => window.removeEventListener("resize", draw);
+  }, [doc]);
+  return <canvas ref={ref} className="h-full w-full" />;
 }

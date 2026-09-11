@@ -1,0 +1,283 @@
+import { useMemo, useRef, useEffect, useState } from "react";
+
+import { useNavigate } from "react-router";
+import { useQuery } from "convex/react";
+import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
+import type { DesignDoc } from "@/lib/geo";
+import { renderThumb } from "@/lib/thumb";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import {
+  Boxes,
+  Compass,
+  Search,
+  Sparkles,
+  User as UserIcon,
+} from "lucide-react";
+
+/** Canvas thumbnail of a published design doc. */
+function DocThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = 320 * dpr;
+    canvas.height = 200 * dpr;
+    ctx.scale(dpr, dpr);
+    renderThumb(ctx, doc ?? null, 320, 200);
+  }, [doc]);
+  if (!doc)
+    return (
+      <div className="flex h-[200px] items-center justify-center rounded-md bg-gradient-to-br from-violet-500/30 to-cyan-500/20 text-3xl font-bold text-white/80">
+        {name.slice(0, 1).toUpperCase()}
+      </div>
+    );
+  return (
+    <canvas
+      ref={ref}
+      style={{ width: 320, height: 200 }}
+      className="h-[200px] w-full rounded-md"
+    />
+  );
+}
+
+function timeAgo(ts: number | undefined) {
+  if (!ts) return "";
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+export default function Explore() {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const published = useQuery(api.catalog.listPublished);
+
+  const [search, setSearch] = useState("");
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+
+  const items = useMemo(() => published ?? [], [published]);
+
+  const tags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of items)
+      for (const t of f.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items.filter((f) => {
+      if (activeTag && !(f.tags ?? []).includes(activeTag)) return false;
+      if (!q) return true;
+      return (
+        f.name.toLowerCase().includes(q) ||
+        (f.description ?? "").toLowerCase().includes(q) ||
+        (f.authorName ?? "").toLowerCase().includes(q) ||
+        (f.tags ?? []).some((t) => t.includes(q))
+      );
+    });
+  }, [items, search, activeTag]);
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Header */}
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
+          <button className="flex items-center gap-2" onClick={() => navigate("/")}>
+            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400">
+              <Boxes className="size-4 text-white" />
+            </span>
+            <span className="text-sm font-semibold tracking-tight">DesignBox</span>
+          </button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/dashboard")}
+            >
+              Dashboard
+            </Button>
+            <Button
+              size="sm"
+              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              onClick={() =>
+                navigate(isAuthenticated ? "/dashboard" : "/auth?returnTo=/dashboard")
+              }
+            >
+              Start designing
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
+        {/* Hero */}
+        <div className="flex flex-col items-start gap-1">
+          <p className="text-xs font-medium uppercase tracking-widest text-cyan-400">
+            Community catalog
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Explore community designs
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Browse UI kits, app screens, and interface assets published by other
+            teams. Open any design to inspect it, or remix it into your own
+            workspace.
+          </p>
+        </div>
+
+        {/* Search + tags */}
+        <div className="mt-8 flex flex-col gap-3">
+          <div className="relative max-w-md">
+            <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search designs, authors, or tags…"
+              className="h-10 pl-8"
+            />
+          </div>
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <Badge
+                variant={activeTag === null ? "default" : "outline"}
+                className={cn(
+                  "cursor-pointer rounded-full px-3 py-1 text-xs",
+                  activeTag === null &&
+                    "border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white",
+                )}
+                onClick={() => setActiveTag(null)}
+              >
+                All
+              </Badge>
+              {tags.map(([tag, count]) => (
+                <Badge
+                  key={tag}
+                  variant={activeTag === tag ? "default" : "outline"}
+                  className={cn(
+                    "cursor-pointer rounded-full px-3 py-1 text-xs",
+                    activeTag === tag &&
+                      "border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white",
+                  )}
+                  onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+                >
+                  {tag} · {count}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Grid */}
+        {published === undefined ? (
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="rounded-xl border border-border/60 p-3">
+                <Skeleton className="h-[200px] w-full rounded-md" />
+                <Skeleton className="mt-3 h-4 w-2/3" />
+                <Skeleton className="mt-2 h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="mt-8 rounded-xl border border-dashed border-border py-20 text-center">
+            <Compass className="mx-auto size-8 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              {items.length === 0
+                ? "Nothing has been published yet. Be the first — open a design and choose Share → Publish to Explore."
+                : "No designs match your search. Try different keywords or clear the tag filter."}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((f) => (
+              <ExploreCard
+                key={f._id}
+                fileId={f._id as Id<"files">}
+                name={f.name}
+                author={f.authorName}
+                publishedAt={f.publishedAt}
+                tags={f.tags}
+                onOpen={() =>
+                  navigate(
+                    isAuthenticated
+                      ? `/design/${f._id}`
+                      : `/auth?returnTo=${encodeURIComponent(`/design/${f._id}`)}`,
+                  )
+                }
+              />
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/** Card that lazily fetches its doc for a live thumbnail. */
+function ExploreCard({
+  fileId,
+  name,
+  author,
+  publishedAt,
+  tags,
+  onOpen,
+}: {
+  fileId: Id<"files">;
+  name: string;
+  author?: string;
+  publishedAt?: number;
+  tags: string[];
+  onOpen: () => void;
+}) {
+  const file = useQuery(api.files.get, { id: fileId });
+  const doc = file?.doc as DesignDoc | undefined;
+  return (
+    <button
+      onClick={onOpen}
+      className="group overflow-hidden rounded-xl border border-border/60 bg-card/60 text-left transition-colors hover:border-violet-400/50"
+    >
+      <div className="overflow-hidden bg-surface-canvas p-0">
+        <DocThumb doc={doc} name={name} />
+      </div>
+      <div className="p-4">
+        <p className="truncate text-sm font-medium">{name}</p>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserIcon className="size-3" />
+          {author ?? "Unknown"} · {timeAgo(publishedAt)}
+        </p>
+        {tags.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1">
+            {tags.slice(0, 4).map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-1 border-t border-border/50 px-4 py-2.5 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+        <Sparkles className="size-3 text-violet-400" />
+        Open to inspect and remix
+      </div>
+    </button>
+  );
+}

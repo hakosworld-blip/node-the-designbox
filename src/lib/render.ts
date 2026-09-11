@@ -8,10 +8,13 @@
 import {
   activePage,
   nodeBounds,
+  type Bounds,
   type DesignDoc,
   type DesignNode,
   type Transform,
 } from "./geo";
+
+type HandleBounds = Bounds & { rotation?: number };
 
 export type { Transform };
 
@@ -148,7 +151,7 @@ function paintNode(
 
 function paintHandles(
   ctx: CanvasRenderingContext2D,
-  b: { x: number; y: number; w: number; h: number; rotation?: number },
+  b: HandleBounds,
   t: Transform,
   color: string,
   withHandles: boolean,
@@ -243,16 +246,17 @@ export function renderDoc(
     for (const id of opts.remoteSelection ?? []) {
       const n = page.nodes.find((p) => p.id === id);
       if (n) {
-        const b = nodeBounds(n);
-        b.rotation = n.rotation;
+        const b: HandleBounds = { ...nodeBounds(n), rotation: n.rotation };
         paintHandles(ctx, b, t, selColor, false);
       }
     }
     if (opts.hoverId && !(opts.selection ?? []).includes(opts.hoverId)) {
       const n = page.nodes.find((p) => p.id === opts.hoverId);
       if (n) {
-        const b = nodeBounds(n);
-        b.rotation = n.rotation; // attach for paintHandles
+        const b: HandleBounds = {
+          ...nodeBounds(n),
+          rotation: n.rotation,
+        }; // attach for paintHandles
         ctx.save();
         ctx.strokeStyle = "rgba(255,255,255,0.45)";
         ctx.lineWidth = 1;
@@ -268,8 +272,7 @@ export function renderDoc(
     for (const id of opts.selection ?? []) {
       const n = page.nodes.find((p) => p.id === id);
       if (n) {
-        const b = nodeBounds(n);
-        b.rotation = n.rotation;
+        const b: HandleBounds = { ...nodeBounds(n), rotation: n.rotation };
         paintHandles(ctx, b, t, selColor, true);
       }
     }

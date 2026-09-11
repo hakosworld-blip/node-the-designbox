@@ -70,7 +70,10 @@ export function emptyDoc(): DesignDoc {
 }
 
 export function activePage(doc: DesignDoc): DesignPage {
-  return doc.pages.find((p) => p.id === doc.activePageId) ?? doc.pages[0];
+  return (
+    doc.pages.find((p) => p.id === doc.activePageId) ??
+    doc.pages[0] ?? { id: "empty", name: "Page 1", nodes: [] }
+  );
 }
 
 export function defaultNode(type: NodeType, x: number, y: number): DesignNode {
