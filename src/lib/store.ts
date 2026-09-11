@@ -37,6 +37,8 @@ interface EditorState {
   past: DesignDoc[];
   future: DesignDoc[];
   dirty: boolean;
+  /** Last viewport we auto-fitted from (avoids repeated fit jumps). */
+  fittedFor: string | null;
 
   setDoc: (doc: DesignDoc, opts?: { resetHistory?: boolean }) => void;
   /** Replace the doc (e.g. remote multiplayer update) keeping selection/history. */
@@ -89,6 +91,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   past: [],
   future: [],
   dirty: false,
+  fittedFor: null,
 
   setDoc: (doc, opts) =>
     set({
@@ -97,6 +100,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       future: opts?.resetHistory ? [] : get().future,
       dirty: opts?.resetHistory ? false : get().dirty,
       selectedIds: [],
+      fittedFor: null,
     }),
 
   adoptDoc: (doc) => set({ doc }),

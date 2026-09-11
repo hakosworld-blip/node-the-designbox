@@ -35,6 +35,9 @@ export interface DesignNode {
   color?: string;
   points?: number; // polygon sides
   src?: string; // image data URL
+  rotation?: number; // degrees, clockwise
+  shadowBlur?: number; // 0 = off
+  shadowColor?: string;
   locked?: boolean;
   hidden?: boolean;
 }
@@ -145,6 +148,20 @@ export function unionBounds(nodes: DesignNode[]): Bounds | null {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+/** Rotate a page-space point into a node's local (unrotated) space. */
+function pointInLocalSpace(n: DesignNode, px: number, py: number) {
+  const rot = ((n.rotation ?? 0) * Math.PI) / 180;
+  if (!rot) return { x: px, y: py };
+  const b = nodeBounds(n);
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const cos = Math.cos(-rot);
+  const sin = Math.sin(-rot);
+  const dx = px - cx;
+  const dy = py - cy;
+  return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+}
+
 /** Page-space point → topmost node whose bounds contain it. */
 export function hitTest(
   doc: DesignDoc,
@@ -155,13 +172,14 @@ export function hitTest(
   for (let i = page.nodes.length - 1; i >= 0; i--) {
     const n = page.nodes[i];
     if (n.hidden) continue;
+    const p = pointInLocalSpace(n, px, py);
     const b = nodeBounds(n);
     const pad = n.type === "line" ? 6 : 0;
     if (
-      px >= b.x - pad &&
-      px <= b.x + b.w + pad &&
-      py >= b.y - pad &&
-      py <= b.y + b.h + pad
+      p.x >= b.x - pad &&
+      p.x <= b.x + b.w + pad &&
+      p.y >= b.y - pad &&
+      p.y <= b.y + b.h + pad
     ) {
       return n;
     }

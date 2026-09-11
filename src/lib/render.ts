@@ -76,6 +76,11 @@ function paintNode(
   if (n.hidden) return;
   ctx.save();
   ctx.globalAlpha = n.opacity;
+  if (n.shadowBlur && n.shadowBlur > 0) {
+    ctx.shadowBlur = n.shadowBlur;
+    ctx.shadowColor = n.shadowColor ?? "rgba(0,0,0,0.45)";
+    ctx.shadowOffsetY = Math.max(2, n.shadowBlur / 3);
+  }
 
   if (n.type === "image" && n.src) {
     let img = imgCache.get(n.src);
@@ -143,7 +148,7 @@ function paintNode(
 
 function paintHandles(
   ctx: CanvasRenderingContext2D,
-  b: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number; rotation?: number },
   t: Transform,
   color: string,
   withHandles: boolean,
@@ -155,6 +160,12 @@ function paintHandles(
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
+  const rot = (b as { rotation?: number }).rotation ?? 0;
+  if (rot) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+  }
   ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
   if (withHandles) {
     ctx.fillStyle = "#ffffff";
@@ -207,7 +218,23 @@ export function renderDoc(
   }
 
   const scale = t.zoom * dpr;
-  for (const n of page.nodes) paintNode(ctx, n, t, scale);
+  for (const n of page.nodes) {
+    if ((n.rotation ?? 0) === 0) {
+      paintNode(ctx, n, t, scale);
+      continue;
+    }
+    // Rotated nodes: rotate about the node's own center in screen space.
+    const b = nodeBounds(n);
+    const cx = b.x * t.zoom + t.panX;
+    const cy = b.y * t.zoom + t.panY;
+    ctx.save();
+    ctx.translate(cx + (b.w * t.zoom) / 2, cy + (b.h * t.zoom) / 2);
+    ctx.rotate(((n.rotation ?? 0) * Math.PI) / 180);
+    ctx.translate(-(b.w * t.zoom) / 2, -(b.h * t.zoom) / 2);
+    const local: Transform = { zoom: t.zoom, panX: 0, panY: 0 };
+    paintNode(ctx, n, local, scale);
+    ctx.restore();
+  }
 
   if (opts.drawPreview) paintNode(ctx, opts.drawPreview, t, scale);
 
@@ -215,12 +242,17 @@ export function renderDoc(
     const selColor = opts.selectionColor ?? "#8b5cf6";
     for (const id of opts.remoteSelection ?? []) {
       const n = page.nodes.find((p) => p.id === id);
-      if (n) paintHandles(ctx, nodeBounds(n), t, selColor, false);
+      if (n) {
+        const b = nodeBounds(n);
+        b.rotation = n.rotation;
+        paintHandles(ctx, b, t, selColor, false);
+      }
     }
     if (opts.hoverId && !(opts.selection ?? []).includes(opts.hoverId)) {
       const n = page.nodes.find((p) => p.id === opts.hoverId);
       if (n) {
         const b = nodeBounds(n);
+        b.rotation = n.rotation; // attach for paintHandles
         ctx.save();
         ctx.strokeStyle = "rgba(255,255,255,0.45)";
         ctx.lineWidth = 1;
@@ -235,7 +267,11 @@ export function renderDoc(
     }
     for (const id of opts.selection ?? []) {
       const n = page.nodes.find((p) => p.id === id);
-      if (n) paintHandles(ctx, nodeBounds(n), t, selColor, true);
+      if (n) {
+        const b = nodeBounds(n);
+        b.rotation = n.rotation;
+        paintHandles(ctx, b, t, selColor, true);
+      }
     }
   }
 }
