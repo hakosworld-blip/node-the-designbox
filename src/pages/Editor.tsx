@@ -28,6 +28,10 @@ import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export"
 import { docToJsx } from "@/lib/designToJsx";
 import { analyzeTokens, formatTokensReport } from "@/lib/designTokens";
 import { ScanSearch } from "lucide-react";
+import { ColorPicker } from "@/components/ColorPicker";
+import { buildButtonNodes } from "@/lib/buttonPreset";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { MousePointerClick } from "lucide-react";
 import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { AiPanel } from "@/components/AiPanel";
@@ -666,6 +670,7 @@ function CommandPalette({
     share: () => void;
     library: () => void;
     lint: () => void;
+    insertButton: () => void;
   };
 }) {
   const selectedIds = useEditor((s) => s.selectedIds);
@@ -861,6 +866,9 @@ function CommandPalette({
           </CommandItem>
           <CommandItem onSelect={() => run(actions.lint)}>
             <ScanSearch className="size-4" /> Design lint: find issues…
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.insertButton)}>
+            <MousePointerClick className="size-4" /> Insert: Button component
           </CommandItem>
           <CommandItem onSelect={() => run(actions.share)}>
             <Share2 className="size-4" /> Share…
@@ -2102,6 +2110,29 @@ export default function Editor() {
     share: () => setShareOpen(true),
     library: () => setLibraryOpen(true),
     lint: () => setLintOpen(true),
+    insertButton: () => {
+      const vp = { zoom, panX, panY };
+      const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+      const cw = el?.clientWidth ?? window.innerWidth / 2;
+      const ch = el?.clientHeight ?? window.innerHeight / 2;
+      const pt = screenToPage(vp, cw / 2, ch / 2);
+      const [frame, label] = buildButtonNodes({
+        x: Math.round(pt.x - 64),
+        y: Math.round(pt.y - 20),
+        text: "Button",
+      });
+      const st = useEditor.getState();
+      const preDoc = st.doc;
+      const basePastLen = st.past.length;
+      st.addNode(frame);
+      st.addNode(label);
+      const after = useEditor.getState();
+      useEditor.setState({
+        past: [...after.past.slice(0, basePastLen), preDoc],
+        future: [],
+        dirty: true,
+      });
+    },
   };
 
   const fitView = () => {
@@ -3088,29 +3119,46 @@ export default function Editor() {
                           updateSelected({ opacity: v / 100 })
                         }
                       />
-                      <div className="grid grid-cols-6 gap-1">
-                        {SWATCHES.map((c) => (
+                      <Popover>
+                        <PopoverTrigger asChild>
                           <button
-                            key={c}
-                            className={cn(
-                              "size-5 rounded border border-border/70 transition-transform hover:scale-110",
+                            className="flex h-8 w-full items-center gap-2 rounded-md border border-border/70 bg-background/60 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <span
+                              className="size-4 shrink-0 rounded border border-border"
+                              style={{
+                                background:
+                                  (selectedNode.type === "text"
+                                    ? selectedNode.color
+                                    : selectedNode.fill) ?? "transparent",
+                              }}
+                            />
+                            {selectedNode.type === "text" ? "Text color" : "Fill color"}
+                            <span className="ml-auto font-mono text-[10px]">
+                              {(selectedNode.type === "text"
+                                ? selectedNode.color
+                                : selectedNode.fill) ?? "none"}
+                            </span>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-64 border-border/70 bg-card p-3">
+                          <ColorPicker
+                            value={
                               (selectedNode.type === "text"
                                 ? selectedNode.color
-                                : selectedNode.fill) === c &&
-                                "ring-2 ring-violet-400",
-                            )}
-                            style={{ backgroundColor: c }}
-                            title={c}
-                            onClick={() =>
+                                : selectedNode.fill) ?? "#8b5cf6"
+                            }
+                            onChange={(hex) =>
                               updateSelected(
                                 selectedNode.type === "text"
-                                  ? { color: c }
-                                  : { fill: c },
+                                  ? { color: hex }
+                                  : { fill: hex },
                               )
                             }
+                            swatches={SWATCHES}
                           />
-                        ))}
-                      </div>
+                        </PopoverContent>
+                      </Popover>
                       <div className="grid grid-cols-2 gap-2">
                         <NumField
                           label="SW"
