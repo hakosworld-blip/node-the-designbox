@@ -125,6 +125,14 @@ import {
   Columns3,
   WrapText,
 } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  SlidersHorizontal,
+} from "lucide-react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 /* ---------- Small helpers ---------- */
 
@@ -171,6 +179,169 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
       {children}
     </p>
+  );
+}
+
+/* ---------- Docking panels: resizable, collapsible, persisted ---------- */
+
+const PANEL_SIZES_KEY = "node.editor.dock.v1";
+
+function readDockState(): { left: boolean; right: boolean } {
+  try {
+    const raw = localStorage.getItem(PANEL_SIZES_KEY);
+    const m = raw ? JSON.parse(raw) : {};
+    return { left: m.leftOpen !== false, right: m.rightOpen !== false };
+  } catch {
+    return { left: true, right: true };
+  }
+}
+
+function dockDefaultSize(side: "left" | "right"): number {
+  try {
+    const raw = localStorage.getItem(PANEL_SIZES_KEY);
+    const m = raw ? JSON.parse(raw) : {};
+    const v = side === "left" ? m.leftSize : m.rightSize;
+    if (typeof v === "number" && v >= 12 && v <= 42) return v;
+  } catch {
+    /* storage unavailable */
+  }
+  return side === "left" ? 17 : 21;
+}
+
+/** Slim draggable divider between dock groups. */
+function DockHandle() {
+  const [dragging, setDragging] = useState(false);
+  return (
+    <PanelResizeHandle
+      className={cn(
+        "group relative z-10 w-px shrink-0 bg-border/60 outline-none transition-colors",
+        "hover:bg-violet-500/60 data-[resize-handle-state=drag]:bg-violet-500",
+        dragging && "bg-violet-500",
+      )}
+      onDragging={setDragging}
+    >
+      {/* Expanded invisible hit area for easier grabbing */}
+      <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
+    </PanelResizeHandle>
+  );
+}
+
+/** A docked side panel: chrome header + scrollable body, resizable via Panel. */
+function DockPanel({
+  side,
+  title,
+  icon,
+  onCollapse,
+  children,
+}: {
+  side: "left" | "right";
+  title: string;
+  icon: React.ReactNode;
+  onCollapse: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Panel
+      id={`dock-${side}`}
+      order={side === "left" ? 1 : 3}
+      defaultSize={dockDefaultSize(side)}
+      minSize={12}
+      maxSize={42}
+      className="min-h-0"
+    >
+      <section
+        className={cn(
+          "flex h-full min-h-0 flex-col bg-card/40",
+          side === "left"
+            ? "border-r border-border/60"
+            : "border-l border-border/60",
+        )}
+      >
+        <header className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/60 bg-card/70 pl-3 pr-1.5">
+          {icon}
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {title}
+          </span>
+          <span className="ml-auto" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={onCollapse}
+              >
+                {side === "left" ? (
+                  <PanelLeftClose className="size-4" />
+                ) : (
+                  <PanelRightClose className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side={side === "left" ? "right" : "left"}>
+              Hide {title.toLowerCase()} panel
+            </TooltipContent>
+          </Tooltip>
+        </header>
+        <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </div>
+      </section>
+    </Panel>
+  );
+}
+
+/** Vertical stub shown where a panel was collapsed — click to restore. */
+function CollapsedDockRail({
+  side,
+  title,
+  icon,
+  onExpand,
+}: {
+  side: "left" | "right";
+  title: string;
+  icon: React.ReactNode;
+  onExpand: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex w-9 shrink-0 flex-col items-center gap-2 bg-card/40 py-2",
+        side === "left"
+          ? "border-r border-border/60"
+          : "border-l border-border/60",
+      )}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={onExpand}
+          >
+            {side === "left" ? (
+              <PanelLeftOpen className="size-4" />
+            ) : (
+              <PanelRightOpen className="size-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side={side === "left" ? "right" : "left"}>
+          Show {title.toLowerCase()} panel
+        </TooltipContent>
+      </Tooltip>
+      <span className="text-muted-foreground">{icon}</span>
+      <button
+        className="flex flex-1 items-start justify-center pt-3"
+        onClick={onExpand}
+        title={`Show ${title.toLowerCase()} panel`}
+      >
+        <span className="[writing-mode:vertical-rl] text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          {title}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -819,6 +990,39 @@ export default function Editor() {
   const [publishTags, setPublishTags] = useState("");
   const [showRulers, setShowRulers] = useState(false);
   const [leftTab, setLeftTab] = useState<"layers" | "assets">("layers");
+  const [dock, setDock] = useState(readDockState);
+
+  const toggleDock = useCallback((side: "left" | "right") => {
+    setDock((d) => {
+      const next = { ...d, [side]: !d[side] };
+      try {
+        const raw = localStorage.getItem(PANEL_SIZES_KEY);
+        const m = raw ? JSON.parse(raw) : {};
+        m[`${side}Open`] = next[side];
+        localStorage.setItem(PANEL_SIZES_KEY, JSON.stringify(m));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+
+  const handleGroupLayout = useCallback(
+    (sizes: number[]) => {
+      try {
+        const raw = localStorage.getItem(PANEL_SIZES_KEY);
+        const m = raw ? JSON.parse(raw) : {};
+        let i = 0;
+        if (dock.left) m.leftSize = sizes[i++];
+        i += 1; // center canvas panel
+        if (dock.right) m.rightSize = sizes[i++];
+        localStorage.setItem(PANEL_SIZES_KEY, JSON.stringify(m));
+      } catch {
+        /* storage unavailable */
+      }
+    },
+    [dock.left, dock.right],
+  );
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [outlineMode, setOutlineMode] = useState(false);
   const [marquee, setMarquee] = useState<Bounds | null>(null);
@@ -1010,7 +1214,16 @@ export default function Editor() {
   useEffect(() => {
     const onResize = () => render();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    // Dock panels resize the canvas without a window resize — keep it crisp.
+    let ro: ResizeObserver | null = null;
+    if (wrapRef.current && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(onResize);
+      ro.observe(wrapRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", onResize);
+      ro?.disconnect();
+    };
   }, [render]);
 
   /* ----- Coordinate helpers ----- */
@@ -2069,8 +2282,32 @@ export default function Editor() {
             ))}
           </div>
 
-          {/* Pages + layers / assets */}
-          <aside className="thin-scroll w-56 shrink-0 overflow-y-auto border-r border-border/60 bg-card/40">
+          {!dock.left && (
+            <CollapsedDockRail
+              side="left"
+              title={leftTab === "assets" ? "Assets" : "Layers"}
+              icon={
+                <Layers className="size-3.5 shrink-0 text-muted-foreground" />
+              }
+              onExpand={() => toggleDock("left")}
+            />
+          )}
+
+          {/* Docked workspace - resizable & collapsible panels */}
+          <PanelGroup
+            direction="horizontal"
+            className="min-h-0 min-w-0 flex-1"
+            onLayout={handleGroupLayout}
+          >
+            {dock.left && (
+              <DockPanel
+                side="left"
+                title={leftTab === "assets" ? "Assets" : "Layers"}
+                icon={
+                  <Layers className="size-3.5 shrink-0 text-muted-foreground" />
+                }
+                onCollapse={() => toggleDock("left")}
+              >
             {/* Panel tabs */}
             <div className="flex items-center gap-1 border-b border-border/60 px-3 py-2">
               <button
@@ -2309,12 +2546,16 @@ export default function Editor() {
             </div>
           </>
             )}
-          </aside>
+              </DockPanel>
+            )}
 
-          {/* Canvas */}
-          <div
-            ref={wrapRef}
-            className="relative min-h-0 min-w-0 flex-1"
+            {dock.left && <DockHandle />}
+
+            {/* Canvas */}
+            <Panel id="dock-center" order={2} minSize={30} className="min-w-0">
+              <div
+                ref={wrapRef}
+                className="relative h-full w-full"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -2587,11 +2828,21 @@ export default function Editor() {
                 <MoveVertical className="size-3.5" />
               </Button>
             </div>
-          </div>
+              </div>
+            </Panel>
 
-          {/* Inspector */}
-          <aside className="thin-scroll w-64 shrink-0 overflow-y-auto border-l border-border/60 bg-card/40">
-            <div className="space-y-5 p-4">
+            {dock.right && <DockHandle />}
+
+            {dock.right && (
+              <DockPanel
+                side="right"
+                title="Inspector"
+                icon={
+                  <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
+                }
+                onCollapse={() => toggleDock("right")}
+              >
+                <div className="space-y-5 p-4">
               {selectedNode ? (
                 <>
                   <div>
@@ -3231,7 +3482,20 @@ export default function Editor() {
                 </div>
               )}
             </div>
-          </aside>
+              </DockPanel>
+            )}
+          </PanelGroup>
+
+          {!dock.right && (
+            <CollapsedDockRail
+              side="right"
+              title="Inspector"
+              icon={
+                <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
+              }
+              onExpand={() => toggleDock("right")}
+            />
+          )}
         </div>
       </div>
 
