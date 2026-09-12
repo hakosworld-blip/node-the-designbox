@@ -1,5 +1,5 @@
 /**
- * DesignBox document model — the serialized design file format.
+ * Node document model — the serialized design file format.
  *
  * A DesignDoc is a flat list of nodes ordered back-to-front (later = on top),
  * organized into named pages. Coordinates are page-space; rendering applies

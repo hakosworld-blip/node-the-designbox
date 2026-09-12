@@ -33,7 +33,7 @@ function nodeCss(n: DesignNode): string {
 export function docCss(doc: DesignDoc): string {
   const page = activePage(doc);
   const blocks = page.nodes.map((n) => `.${n.id} {\n${nodeCss(n)}\n}`);
-  return `/* DesignBox — CSS variables and styles for the current page */\n\n${blocks.join("\n\n")}\n`;
+  return `/* Node — CSS variables and styles for the current page */\n\n${blocks.join("\n\n")}\n`;
 }
 
 function download(name: string, dataUrl: string) {

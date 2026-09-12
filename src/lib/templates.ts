@@ -1,5 +1,5 @@
 /**
- * DesignBox starter templates — ready-made documents so a new file is never
+ * Node starter templates — ready-made documents so a new file is never
  * a blank void. Each template builds a DesignDoc with real, editable nodes.
  */
 import { emptyDoc, uid, type DesignDoc, type DesignNode } from "./geo";
@@ -79,7 +79,7 @@ export function buildTemplate(kind: TemplateKind): DesignDoc {
     page.nodes = [
       make({ type: "frame", name: "Dashboard frame", x: 80, y: 80, w: 1120, h: 700, fill: "#17171c", radius: 16 }),
       make({ type: "rect", name: "Sidebar", x: 80, y: 80, w: 220, h: 700, fill: "#1d1d23", radius: 16 }),
-      text("DesignBox", 108, 112, 18, "#ffffff", 700, 180),
+      text("Node", 108, 112, 18, "#ffffff", 700, 180),
       text("Overview", 108, 180, 13, "#8b5cf6", 600, 160),
       text("Assets", 108, 212, 13, "#8b8b94", 500, 160),
       text("Components", 108, 244, 13, "#8b8b94", 500, 160),

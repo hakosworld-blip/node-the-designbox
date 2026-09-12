@@ -1,5 +1,5 @@
 /**
- * DesignBox canvas renderer.
+ * Node canvas renderer.
  *
  * Pure 2D-canvas painting of a DesignDoc with a view transform. The same
  * routine renders the editor canvas, multiplayer remote selections, and the

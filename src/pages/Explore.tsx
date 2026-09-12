@@ -105,7 +105,7 @@ export default function Explore() {
             <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400">
               <Boxes className="size-4 text-white" />
             </span>
-            <span className="text-sm font-semibold tracking-tight">DesignBox</span>
+            <span className="text-sm font-semibold tracking-tight">Node</span>
           </button>
           <div className="flex items-center gap-1">
             <Button

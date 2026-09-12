@@ -89,7 +89,7 @@ export default function Landing() {
             <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-lg shadow-violet-500/25">
               <Boxes className="size-4.5 text-white" />
             </span>
-            <span className="text-base font-semibold tracking-tight">DesignBox</span>
+            <span className="text-base font-semibold tracking-tight">Node</span>
           </button>
           <nav className="hidden items-center gap-1 md:flex">
             <a
@@ -170,7 +170,7 @@ export default function Landing() {
             </span>
           </h1>
           <p className="mt-5 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
-            DesignBox is a collaborative design tool where your whole team creates
+            Node is a collaborative design tool where your whole team creates
             interface assets in one shared file. Designers draw, everyone reviews,
             developers export production-ready assets — no downloads, no version
             chaos, no handoff friction.
@@ -317,7 +317,7 @@ export default function Landing() {
               One workflow, three roles
             </h2>
             <p className="mt-4 text-muted-foreground">
-              DesignBox keeps designers, reviewers, and engineers working from the
+              Node keeps designers, reviewers, and engineers working from the
               same source of truth.
             </p>
           </motion.div>
@@ -410,7 +410,7 @@ export default function Landing() {
             <span className="flex size-6 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-cyan-400">
               <Boxes className="size-3.5 text-white" />
             </span>
-            <span>DesignBox</span>
+            <span>Node</span>
           </div>
           <p>Collaborative interface design for modern product teams.</p>
           <button

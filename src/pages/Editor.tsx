@@ -512,7 +512,7 @@ function CommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="DesignBox commands"
+      title="Node commands"
       description="Search tools, edits, views, and file actions"
     >
       <CommandInput placeholder="Type a command or search…" />
@@ -686,7 +686,7 @@ function CommandPalette({
             <Download className="size-4" /> Export CSS
           </CommandItem>
           <CommandItem onSelect={() => run(actions.exportJson)}>
-            <Download className="size-4" /> Export DesignBox JSON
+            <Download className="size-4" /> Export Node JSON
           </CommandItem>
         </CommandGroup>
       </CommandList>
@@ -3280,7 +3280,7 @@ export default function Editor() {
                 setExportOpen(false);
               }}
             >
-              <Frame className="mr-2 size-4" /> DesignBox document (.json)
+              <Frame className="mr-2 size-4" /> Node document (.json)
             </Button>
           </div>
         </DialogContent>
