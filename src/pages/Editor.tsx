@@ -24,8 +24,8 @@ import {
   type FramePreset,
 } from "@/lib/framePresets";
 import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
-import { buildTemplate } from "@/lib/templates";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
+import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -1056,22 +1056,78 @@ export default function Editor() {
     body: string;
   } | null>(null);
 
-  /* ----- Load doc once per file ----- */
+  /* ----- Load doc: device-first boot, then newest-wins cloud reconcile ----- */
   const loadedIdRef = useRef<string | null>(null);
+  const cloudHandledRef = useRef<string | null>(null);
+  const localSavedAtRef = useRef<number | null>(null);
+  const cloudUpdatedAtRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!fileRow || loadedIdRef.current === fileId) return;
+    if (!fileId || loadedIdRef.current === fileId) return;
     loadedIdRef.current = fileId ?? null;
+    let alive = true;
+    // 1) Boot instantly from the copy stored on this device (works offline).
+    loadFileLocal(fileId)
+      .then((local) => {
+        if (!alive || !local) return;
+        localSavedAtRef.current = local.savedAt;
+        if (store.getState().dirty) return; // never clobber in-flight edits
+        // Skip if the cloud copy (already applied) was newer than this.
+        if (
+          cloudUpdatedAtRef.current !== null &&
+          cloudUpdatedAtRef.current > local.savedAt + 500
+        )
+          return;
+        const d = local.doc as DesignDoc | undefined;
+        const valid =
+          d &&
+          typeof d === "object" &&
+          Array.isArray(d.pages) &&
+          d.pages.length > 0;
+        if (!valid) return;
+        store.getState().setDoc(d as DesignDoc, { resetHistory: true });
+        store.getState().markSaved();
+        setName(local.name || name);
+        // Cloud row already arrived and was older — push the device copy up.
+        if (cloudUpdatedAtRef.current !== null) {
+          updateDoc({ id: fileId as Id<"files">, doc: d as DesignDoc }).catch(
+            () => undefined,
+          );
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId, store]);
+
+  // 2) When the cloud row arrives, apply it only if newer than the device copy.
+  useEffect(() => {
+    if (!fileRow || cloudHandledRef.current === fileId) return;
+    cloudHandledRef.current = fileId ?? null;
+    cloudUpdatedAtRef.current = fileRow.updatedAt;
+    if (store.getState().dirty) return;
     const remote = fileRow.doc as DesignDoc | undefined;
     const valid =
       remote &&
       typeof remote === "object" &&
       Array.isArray(remote.pages) &&
       remote.pages.length > 0;
-    store.getState().setDoc(valid ? (remote as DesignDoc) : buildTemplate("blank"), {
-      resetHistory: true,
-    });
+    if (!valid) return;
+    if (
+      localSavedAtRef.current !== null &&
+      fileRow.updatedAt <= localSavedAtRef.current + 500
+    ) {
+      // Device copy is as new or newer — keep it and sync it upward.
+      updateDoc({
+        id: fileId as Id<"files">,
+        doc: store.getState().doc,
+      }).catch(() => undefined);
+      return;
+    }
+    store.getState().setDoc(remote as DesignDoc, { resetHistory: true });
     setName(fileRow.name);
-  }, [fileRow, fileId, store]);
+  }, [fileRow, fileId, store, updateDoc]);
 
   /* ----- Fit view once per loaded file ----- */
   useEffect(() => {
@@ -1084,16 +1140,32 @@ export default function Editor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, fileId, fittedFor]);
 
-  /* ----- Autosave (debounced) ----- */
+  /* ----- Save: local-first (device IndexedDB), then cloud sync ----- */
   useEffect(() => {
-    if (!dirty || !fileRow || !fileId) return;
+    if (!dirty || !fileId) return;
+    let cancelled = false;
     const handle = setTimeout(() => {
-      updateDoc({ id: fileId as Id<"files">, doc }).then(() =>
-        store.getState().markSaved(),
-      );
+      // 1) Always write to the user's device first - instant, offline-safe.
+      saveFileLocal(fileId, name, doc)
+        .catch(() => undefined) // private-mode/quota failures must not block the cloud sync
+        .finally(() => {
+          if (cancelled) return;
+          // 2) Then sync to the cloud so collaborators stay in sync (best effort).
+          if (fileRow) {
+            updateDoc({ id: fileId as Id<"files">, doc })
+              .then(() => store.getState().markSaved())
+              .catch(() => undefined);
+          } else {
+            // No cloud row (offline or missing) - the device copy IS the save.
+            store.getState().markSaved();
+          }
+        });
     }, 800);
-    return () => clearTimeout(handle);
-  }, [doc, dirty, fileRow, fileId, updateDoc, store]);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [doc, dirty, fileRow, fileId, name, updateDoc, store]);
 
   /* ----- Multiplayer doc sync: adopt remote updates we haven't seen ----- */
   const lastPushedVersionRef = useRef<number>(0);
@@ -1727,6 +1799,7 @@ export default function Editor() {
       }
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
+        saveFileLocal(fileId ?? "", name, store.getState().doc).catch(() => undefined);
         snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" });
         return;
       }
@@ -2052,7 +2125,7 @@ export default function Editor() {
                 dirty ? "animate-pulse bg-amber-400" : "bg-emerald-400",
               )}
             />
-            {dirty ? "Saving…" : "All changes saved"}
+            {dirty ? "Saving to this device…" : "Saved on this device"}
           </span>
 
           <div className="mx-2 flex items-center gap-0.5">
