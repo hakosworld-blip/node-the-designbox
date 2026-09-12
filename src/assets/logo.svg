@@ -1,16 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="96" fill="#fdfdfd"/>
-  <!-- Isometric cube mark -->
-  <g fill="#0a0a0a">
-    <polygon points="196,84 276,130 196,176 116,130"/>
-    <polygon points="116,130 196,176 196,268 116,222"/>
-    <polygon points="276,130 276,222 196,268 196,176"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 104" width="512" height="532">
+  <!-- Node brand mark: interlocking isometric cube "N" on a white tile -->
+  <rect width="100" height="104" rx="14" fill="#ffffff"/>
+  <g>
+    <!-- top-left flat diamond -->
+    <polygon points="28.5,8 49.5,20 28.5,32 7.5,20" fill="#3d3d3d"/>
+    <!-- lower-left cube -->
+    <polygon points="40,42 61,54 40,66 19,54" fill="#ffffff" stroke="#d4d4d4" stroke-width="0.5"/>
+    <polygon points="19,54 40,66 40,90 19,78" fill="#0a0a0a"/>
+    <polygon points="40,66 61,54 61,78 40,90" fill="#0a0a0a"/>
+    <!-- bottom-right flat diamond -->
+    <polygon points="40,90 61,78 82,90 61,102" fill="#0a0a0a"/>
+    <!-- upper-right cube (drawn over, interlocking) -->
+    <polygon points="60,14 81,26 60,38 39,26" fill="#2e2e2e"/>
+    <polygon points="60,38 81,26 81,50 60,62" fill="#0a0a0a"/>
+    <polygon points="39,26 60,38 60,62 39,50" fill="#ffffff" stroke="#d4d4d4" stroke-width="0.5"/>
+    <!-- interlock notch -->
+    <polygon points="40,66 61,54 60,62" fill="#0a0a0a"/>
   </g>
-  <g fill="#0a0a0a">
-    <polygon points="316,196 396,242 316,288 236,242"/>
-    <polygon points="236,242 316,288 316,380 236,334"/>
-    <polygon points="396,242 396,334 316,380 316,288"/>
-  </g>
-  <!-- Wordmark -->
-  <text x="256" y="446" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="118" letter-spacing="14" fill="#0a0a0a">NODE</text>
 </svg>

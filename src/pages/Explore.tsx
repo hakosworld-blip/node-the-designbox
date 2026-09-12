@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { NodeMarkTile } from "@/components/NodeLogo";
 import type { DesignDoc } from "@/lib/geo";
 import { renderThumb } from "@/lib/thumb";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
-  Boxes,
   Compass,
   GitFork,
   Search,
@@ -101,11 +101,9 @@ export default function Explore() {
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-          <button className="flex items-center gap-2" onClick={() => navigate("/")}>
-            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400">
-              <Boxes className="size-4 text-white" />
-            </span>
-            <span className="text-sm font-semibold tracking-tight">Node</span>
+          <button className="flex items-center gap-2.5" onClick={() => navigate("/")}>
+            <NodeMarkTile className="size-7 rounded-[7px]" />
+            <span className="text-sm font-bold uppercase tracking-[0.22em]">Node</span>
           </button>
           <div className="flex items-center gap-1">
             <Button
