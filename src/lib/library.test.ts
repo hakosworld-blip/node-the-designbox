@@ -163,16 +163,17 @@ describe("libraryThumbDoc", () => {
 });
 
 describe("integration with geo primitives", () => {
-  it("library nodes share the DesignNode shape produced by defaultNode", () => {
-    const sample: DesignNode = defaultNode("rect", 0, 0);
+  it("builds nodes carrying the full DesignNode base shape from defaultNode", () => {
     for (const item of LIBRARY.slice(0, 20)) {
       const node = item.build()[0];
-      for (const key of ["id", "type", "name", "x", "y", "w", "h", "opacity"] as const) {
-        expect(node).toHaveProperty(key, node[key as keyof DesignNode]);
+      // defaultNode emits the core renderer shape; every library factory
+      // builds on the same `n()` helper, so it must never emit fewer keys.
+      const expected = defaultNode(node.type, 0, 0);
+      for (const key of Object.keys(expected) as (keyof DesignNode)[]) {
+        expect(node).toHaveProperty(key);
       }
       // fill/stroke handling matches the renderer's expectations
       expect(node.fill === null || typeof node.fill === "string").toBe(true);
-      void sample;
     }
   });
 });

@@ -986,6 +986,20 @@ export default function Editor() {
 
   const store = useEditor;
 
+  /**
+   * Manual version snapshot: push the live in-memory doc to the cloud FIRST,
+   * then snapshot. `files.snapshot` reads `file.doc` server-side, so calling
+   * it before the push would persist the pre-push doc — silently dropping
+   * edits made since the debounced autosave.
+   */
+  const saveAndSnapshot = useCallback(() => {
+    const current = store.getState().doc;
+    saveFileLocal(fileId ?? "", name, current).catch(() => undefined);
+    updateDoc({ id: fileId as Id<"files">, doc: current })
+      .then(() => snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" }))
+      .catch(() => undefined);
+  }, [fileId, name, snapshotVersion, store, updateDoc]);
+
   const [name, setName] = useState("");
   const [presenting, setPresenting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
