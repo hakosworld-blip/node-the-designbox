@@ -22,6 +22,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -29,19 +30,27 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { NodeMarkTile } from "@/components/NodeLogo";
-import {
+import { useTheme } from "@/lib/theme";import {
   Compass,
   FilePlus2,
+  Folder,
+  FolderInput,
+  FolderOpen,
   FolderPlus,
   Globe,
   LayoutGrid,
   LogOut,
+  Moon,
   MoreHorizontal,
+  MoreVertical,
+  Pencil,
   PenLine,
   RotateCcw,
   Search,
+  ShieldAlert,
   Smartphone,
   Star,
+  Sun,
   Trash2,
 } from "lucide-react";
 
@@ -49,6 +58,12 @@ type ViewTab = "recent" | "starred" | "trash";
 type TemplateKind = "blank" | "mobile" | "web";
 
 interface Project {
+  _id: string;
+  name: string;
+  folderId?: string;
+}
+
+interface FolderRow {
   _id: string;
   name: string;
 }
@@ -92,8 +107,8 @@ function FileThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) 
   }, [doc]);
   if (!doc)
     return (
-      <div className="flex h-[180px] items-center justify-center rounded-md border border-white/5 bg-white/[0.03]">
-        <span className="text-3xl font-bold text-zinc-700">
+      <div className="flex h-[180px] items-center justify-center rounded-md border border-border/60 bg-card/60">
+        <span className="text-3xl font-bold text-muted-foreground/40">
           {name.slice(0, 1).toUpperCase()}
         </span>
       </div>
@@ -109,10 +124,12 @@ function FileThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) 
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
+  const themeMode = useTheme((t) => t.mode);
   const navigate = useNavigate();
 
   const projects = useQuery(api.projects.list);
   const files = useQuery(api.files.recent);
+  const folders = useQuery(api.projects.listFolders);
 
   const createProject = useMutation(api.projects.create);
   const createFile = useMutation(api.files.create);
@@ -124,11 +141,17 @@ export default function Dashboard() {
   const unpublishFile = useMutation(api.files.unpublish);
   const ensureWorkspace = useMutation(api.bootstrap.ensureUserWorkspace);
   const updateProfile = useMutation(api.profile.updateProfile);
+  const createFolder = useMutation(api.projects.createFolder);
+  const renameFolderFn = useMutation(api.projects.renameFolder);
+  const deleteFolderFn = useMutation(api.projects.deleteFolder);
+  const renameProject = useMutation(api.projects.rename);
+  const moveProject = useMutation(api.projects.moveToFolder);
+  const removeProject = useMutation(api.projects.remove);
+  const deleteAccountFn = useMutation(api.account.deleteAccount);
 
   const [bootstrapped, setBootstrapped] = useState(false);
   const [tab, setTab] = useState<ViewTab>("recent");
   const [search, setSearch] = useState("");
-  const [newDialog, setNewDialog] = useState<null | "project" | "file">(null);
   const [newName, setNewName] = useState("");
   const [projectId, setProjectId] = useState<string>("");
   const [template, setTemplate] = useState<TemplateKind>("mobile");
@@ -136,7 +159,16 @@ export default function Dashboard() {
   const [publishTags, setPublishTags] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
-
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+  const [newDialog, setNewDialog] = useState<null | "project" | "file" | "folder">(null);
+  const [projectMenu, setProjectMenu] = useState<Project | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [moveTarget, setMoveTarget] = useState<string>("");
+  const [deleteProject, setDeleteProject] = useState<Project | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [accountDialog, setAccountDialog] = useState(false);
+  const [accountConfirm, setAccountConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
   // Create a starter project the first time a user lands here.
   useEffect(() => {
     if (projects === undefined || bootstrapped) return;
@@ -196,6 +228,47 @@ export default function Dashboard() {
     navigate("/");
   };
 
+  const handleCreateFolder = async () => {
+    if (!newName.trim()) return;
+    await createFolder({ name: newName.trim() });
+    setNewDialog(null);
+    setNewName("");
+  };
+
+  const handleRename = async () => {
+    if (!renameValue.trim() || !moveTarget) return;
+    const [id, kind] = moveTarget.split("|");
+    if (kind === "folder") await renameFolderFn({ id: id as never, name: renameValue.trim() });
+    else if (kind === "rename") await renameProject({ id: id as never, name: renameValue.trim() });
+    setMoveTarget("");
+    setRenameValue("");
+  };
+
+  const handleDeleteProject = async () => {
+    if (!deleteProject || deleteConfirm.trim() !== deleteProject.name) return;
+    setBusy(true);
+    try {
+      await removeProject({ id: deleteProject._id as never });
+      if (projectId === deleteProject._id) setProjectId("");
+      setDeleteProject(null);
+      setDeleteConfirm("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user?.name || accountConfirm.trim() !== user.name.trim()) return;
+    setBusy(true);
+    try {
+      await deleteAccountFn({ consent: accountConfirm.trim() });
+      await signOut();
+      navigate("/");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const tabs: { key: ViewTab; label: string }[] = [
     { key: "recent", label: "Recent" },
     { key: "starred", label: "Starred" },
@@ -203,25 +276,25 @@ export default function Dashboard() {
   ];
 
   return (
-    <main className="relative min-h-dvh bg-[#0b0b0e] text-zinc-100">
+    <main className="relative min-h-dvh bg-background text-foreground">
       {/* Canvas dot grid backdrop */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px)",
+            "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
           backgroundSize: "24px 24px",
         }}
       />
       {/* Violet ambience */}
       <div
         aria-hidden
-        className="pointer-events-none fixed left-1/2 top-0 h-72 w-[50rem] -translate-x-1/2 rounded-full bg-violet-600/10 blur-[130px]"
+        className="pointer-events-none fixed left-1/2 top-0 h-72 w-[50rem] -translate-x-1/2 rounded-full bg-violet-600/10 blur-[130px] dark:bg-violet-600/10"
       />
 
       {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0b0b0e]/85 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
           <button className="flex items-center gap-2.5" onClick={() => navigate("/dashboard")}>
             <NodeMarkTile className="size-7 rounded-[8px]" />
@@ -231,7 +304,7 @@ export default function Dashboard() {
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+              className="gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => navigate("/explore")}
             >
               <Compass className="size-4" />
@@ -241,12 +314,12 @@ export default function Dashboard() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="gap-2 px-2 hover:bg-white/[0.06]"
+                  className="gap-2 px-2 hover:bg-accent"
                 >
                   <span className="flex size-7 items-center justify-center rounded-full bg-violet-500 text-[11px] font-semibold text-white">
                     {(user?.name ?? "U").slice(0, 1).toUpperCase()}
                     </span>
-                  <span className="text-sm text-zinc-200">{user?.name ?? "Account"}</span>
+                  <span className="text-sm text-foreground">{user?.name ?? "Account"}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -259,6 +332,28 @@ export default function Dashboard() {
                 >
                   <PenLine className="mr-2 size-4" />
                   Rename profile
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => useTheme.getState().toggle()}
+                >
+                  {themeMode === "dark" ? (
+                    <Sun className="mr-2 size-4" />
+                  ) : (
+                    <Moon className="mr-2 size-4" />
+                  )}
+                  {themeMode === "dark" ? "Light mode" : "Dark mode"}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer text-red-400 focus:text-red-400"
+                  onClick={() => {
+                    setAccountConfirm("");
+                    setAccountDialog(true);
+                  }}
+                >
+                  <ShieldAlert className="mr-2 size-4" />
+                  Delete account…
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
@@ -274,72 +369,214 @@ export default function Dashboard() {
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
         {/* Heading */}
         <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-widest text-violet-400">
+          <p className="text-xs font-medium uppercase tracking-widest text-violet-500">
             Workspace
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Your UI and UX projects
           </h1>
         </div>
 
-        {/* Projects strip */}
+        {/* Projects & folders */}
         <section className="mt-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-zinc-500">Projects</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
-              onClick={() => {
-                setNewName("");
-                setNewDialog("project");
-              }}
-            >
-              <FolderPlus className="size-3.5" />
-              New project
-            </Button>
+            <h2 className="text-sm font-medium text-muted-foreground">Projects</h2>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setNewName("");
+                  setNewDialog("folder");
+                }}
+              >
+                <FolderPlus className="size-3.5" />
+                New folder
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => {
+                  setNewName("");
+                  setNewDialog("project");
+                }}
+              >
+                <FolderPlus className="size-3.5" />
+                New project
+              </Button>
+            </div>
           </div>
+
+          {/* Folders */}
+          {folders !== undefined && folders.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {folders.map((folder) => {
+                const f = folder as FolderRow;
+                const isOpen = openFolderId === f._id;
+                const inside = projectList.filter((p) => p.folderId === f._id);
+                return (
+                  <div
+                    key={f._id}
+                    className={cn(
+                      "group flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors",
+                      isOpen
+                        ? "border-violet-500/60 bg-violet-500/10"
+                        : "border-border bg-card/50 hover:border-white/25 hover:bg-accent/60",
+                    )}
+                    onClick={() => setOpenFolderId(isOpen ? null : f._id)}
+                  >
+                    {isOpen ? (
+                      <FolderOpen className="size-4 shrink-0 text-violet-500" />
+                    ) : (
+                      <Folder className="size-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0 truncate text-sm text-foreground">
+                      {f.name}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      {inside.length}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="size-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenameValue(f.name);
+                            setProjectMenu(null);
+                            setMoveTarget(f._id + "|folder");
+                          }}
+                        >
+                          <Pencil className="mr-2 size-3.5" /> Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="cursor-pointer text-red-400 focus:text-red-400"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteFolderFn({ id: f._id as never });
+                          }}
+                        >
+                          <Trash2 className="mr-2 size-3.5" /> Delete folder
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Project chips (unfiled or in the open folder) */}
           <div className="mt-3 flex flex-wrap gap-2">
             {projects === undefined ? (
               <>
-                <Skeleton className="h-8 w-28 rounded-full bg-white/[0.06]" />
-                <Skeleton className="h-8 w-24 rounded-full bg-white/[0.06]" />
-                <Skeleton className="h-8 w-32 rounded-full bg-white/[0.06]" />
+                <Skeleton className="h-8 w-28 rounded-full bg-accent" />
+                <Skeleton className="h-8 w-24 rounded-full bg-accent" />
+                <Skeleton className="h-8 w-32 rounded-full bg-accent" />
               </>
             ) : projectList.length === 0 ? (
-              <p className="text-sm text-zinc-500">
+              <p className="text-sm text-muted-foreground">
                 Setting up your workspace…
               </p>
             ) : (
-              projectList.map((p) => (
-                <Badge
-                  key={p._id}
-                  variant="outline"
-                  className={cn(
-                    "cursor-pointer rounded-full border-white/10 px-3 py-1 text-xs font-normal transition-colors hover:border-white/25 hover:bg-white/[0.04]",
-                    p._id === projectId &&
-                      "border-violet-400/40 bg-violet-500/15 text-violet-200 hover:border-violet-400/60",
-                  )}
-                  onClick={() => setProjectId(p._id)}
-                >
-                  {p.name}
-                </Badge>
-              ))
+              projectList
+                .filter((p) =>
+                  openFolderId ? p.folderId === openFolderId : !p.folderId,
+                )
+                .filter((p) => !openFolderId || true)
+                .map((p) => (
+                  <Badge
+                    key={p._id}
+                    variant="outline"
+                    className={cn(
+                      "group cursor-pointer rounded-full border-border px-3 py-1 text-xs font-normal transition-colors hover:border-white/25 hover:bg-accent/60",
+                      p._id === projectId &&
+                        "border-violet-500/60 bg-violet-500/15 text-violet-500 hover:border-violet-500",
+                    )}
+                    onClick={() => setProjectId(p._id)}
+                  >
+                    {p.name}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="ml-1.5 inline-flex rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="size-3" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-44" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setRenameValue(p.name);
+                            setMoveTarget(p._id + "|rename");
+                          }}
+                        >
+                          <Pencil className="mr-2 size-3.5" /> Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+                          Move to folder
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={() => moveProject({ id: p._id as never, folderId: undefined })}
+                        >
+                          <FolderInput className="mr-2 size-3.5" /> No folder
+                        </DropdownMenuItem>
+                        {(folders ?? []).map((folder) => {
+                          const fo = folder as FolderRow;
+                          return (
+                            <DropdownMenuItem
+                              key={fo._id}
+                              className="cursor-pointer"
+                              onClick={() =>
+                                moveProject({ id: p._id as never, folderId: fo._id as never })
+                              }
+                            >
+                              <Folder className="mr-2 size-3.5" /> {fo.name}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="cursor-pointer text-red-400 focus:text-red-400"
+                          onClick={() => {
+                            setDeleteProject(p);
+                            setDeleteConfirm("");
+                          }}
+                        >
+                          <Trash2 className="mr-2 size-3.5" /> Delete project…
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </Badge>
+                ))
             )}
           </div>
         </section>
 
         {/* Toolbar */}
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.03] p-1">
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-card/60 p-1">
             {tabs.map((t) => (
               <button
                 key={t.key}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm transition-colors",
                   tab === t.key
-                    ? "bg-white/[0.08] font-medium text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-200",
+                    ? "bg-accent font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => setTab(t.key)}
               >
@@ -349,12 +586,12 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 size-4 text-zinc-600" />
+              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground/70" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search files"
-                className="h-9 w-52 border-white/10 bg-white/[0.03] pl-8 placeholder:text-zinc-600 focus-visible:ring-violet-500/40"
+                className="h-9 w-52 border-border bg-card/60 pl-8 placeholder:text-muted-foreground/70 focus-visible:ring-violet-500/40"
               />
             </div>
             <Button
@@ -378,16 +615,16 @@ export default function Dashboard() {
               {[0, 1, 2].map((i) => (
                 <Card
                   key={i}
-                  className="border-white/[0.06] bg-white/[0.02] p-3 shadow-none"
+                  className="border-border bg-card/50 p-3 shadow-none"
                 >
-                  <Skeleton className="h-[180px] w-full bg-white/[0.06]" />
-                  <Skeleton className="mt-3 h-4 w-2/3 bg-white/[0.06]" />
+                  <Skeleton className="h-[180px] w-full bg-accent" />
+                  <Skeleton className="mt-3 h-4 w-2/3 bg-accent" />
                 </Card>
               ))}
             </div>
           ) : visibleFiles.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
-              <p className="text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-border py-16 text-center">
+              <p className="text-sm text-muted-foreground">
                 {tab === "trash"
                   ? "Trash is empty."
                   : tab === "starred"
@@ -431,31 +668,31 @@ export default function Dashboard() {
         {tab === "recent" && fileList.filter((f) => !f.trashed).length === 0 && (
           <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Card
-              className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-5 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
+              className="group cursor-pointer border-border bg-card/50 p-5 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
               onClick={() => {
                 setTemplate("mobile");
                 setNewName("Mobile app");
                 setNewDialog("file");
               }}
             >
-              <Smartphone className="size-5 text-violet-400" />
-              <p className="mt-3 text-sm font-medium text-zinc-100">Mobile app template</p>
-              <p className="mt-1 text-xs text-zinc-500">
+              <Smartphone className="size-5 text-violet-500" />
+              <p className="mt-3 text-sm font-medium text-foreground">Mobile app template</p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 A ready-made phone screen with a header, hero card, and buttons
                 you can restyle.
               </p>
             </Card>
             <Card
-              className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-5 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
+              className="group cursor-pointer border-border bg-card/50 p-5 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
               onClick={() => {
                 setTemplate("web");
                 setNewName("Web dashboard");
                 setNewDialog("file");
               }}
             >
-              <LayoutGrid className="size-5 text-violet-400" />
-              <p className="mt-3 text-sm font-medium text-zinc-100">Web dashboard template</p>
-              <p className="mt-1 text-xs text-zinc-500">
+              <LayoutGrid className="size-5 text-violet-500" />
+              <p className="mt-3 text-sm font-medium text-foreground">Web dashboard template</p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 A desktop frame with sidebar navigation and metric cards.
               </p>
             </Card>
@@ -465,10 +702,10 @@ export default function Dashboard() {
 
       {/* New file dialog */}
       <Dialog open={newDialog === "file"} onOpenChange={() => setNewDialog(null)}>
-        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New design file</DialogTitle>
-            <DialogDescription className="text-zinc-500">
+            <DialogDescription className="text-muted-foreground">
               Pick a starting point. Templates come with ready-made assets.
             </DialogDescription>
           </DialogHeader>
@@ -478,7 +715,7 @@ export default function Dashboard() {
               onChange={(e) => setNewName(e.target.value)}
               placeholder="File name"
               autoFocus
-              className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
+              className="border-border bg-card/60 placeholder:text-muted-foreground/70"
             />
             <div className="grid grid-cols-3 gap-2">
               {(["blank", "mobile", "web"] as const).map((t) => (
@@ -487,8 +724,8 @@ export default function Dashboard() {
                   className={cn(
                     "rounded-md border px-2 py-2 text-xs capitalize transition-colors",
                     template === t
-                      ? "border-violet-400/50 bg-violet-500/10 font-medium text-zinc-100"
-                      : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300",
+                      ? "border-violet-500/60 bg-violet-500/10 font-medium text-foreground"
+                      : "border-border text-muted-foreground hover:border-white/25 hover:text-foreground/80",
                   )}
                   onClick={() => setTemplate(t)}
                 >
@@ -499,7 +736,7 @@ export default function Dashboard() {
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="h-9 rounded-md border border-white/10 bg-[#0b0b0e] px-3 text-sm text-zinc-200"
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
             >
               {projectList.map((p) => (
                 <option key={p._id} value={p._id}>
@@ -525,10 +762,10 @@ export default function Dashboard() {
         open={newDialog === "project"}
         onOpenChange={() => setNewDialog(null)}
       >
-        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
-            <DialogDescription className="text-zinc-500">
+            <DialogDescription className="text-muted-foreground">
               Group related design files together.
             </DialogDescription>
           </DialogHeader>
@@ -537,7 +774,7 @@ export default function Dashboard() {
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Project name"
             autoFocus
-            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
+            className="border-border bg-card/60 placeholder:text-muted-foreground/70"
             onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
           />
           <DialogFooter>
@@ -557,10 +794,10 @@ export default function Dashboard() {
         open={publishFor !== null}
         onOpenChange={(open) => !open && setPublishFor(null)}
       >
-        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Publish to Explore</DialogTitle>
-            <DialogDescription className="text-zinc-500">
+            <DialogDescription className="text-muted-foreground">
               "{publishFor?.name}" will be listed in the public catalog for
               anyone to find, inspect, and remix.
             </DialogDescription>
@@ -569,12 +806,12 @@ export default function Dashboard() {
             placeholder="Tags, comma separated (e.g. mobile, ecommerce)"
             value={publishTags}
             onChange={(e) => setPublishTags(e.target.value)}
-            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
+            className="border-border bg-card/60 placeholder:text-muted-foreground/70"
           />
           <DialogFooter>
             <Button
               variant="ghost"
-              className="text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => setPublishFor(null)}
             >
               Cancel
@@ -602,12 +839,175 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* New folder dialog */}
+      <Dialog
+        open={newDialog === "folder"}
+        onOpenChange={() => setNewDialog(null)}
+      >
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New folder</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Folders group related projects together.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Folder name"
+            autoFocus
+            className="border-border bg-card/60 placeholder:text-muted-foreground/70"
+            onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+          />
+          <DialogFooter>
+            <Button
+              onClick={handleCreateFolder}
+              disabled={!newName.trim()}
+              className="bg-violet-600 text-white hover:bg-violet-500"
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename dialog (project or folder) */}
+      <Dialog
+        open={moveTarget.endsWith("|rename") || moveTarget.endsWith("|folder")}
+        onOpenChange={() => setMoveTarget("")}
+      >
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {moveTarget.endsWith("|folder") ? "Rename folder" : "Rename project"}
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            placeholder="New name"
+            autoFocus
+            className="border-border bg-card/60 placeholder:text-muted-foreground/70"
+            onKeyDown={(e) => e.key === "Enter" && handleRename()}
+          />
+          <DialogFooter>
+            <Button
+              onClick={handleRename}
+              disabled={!renameValue.trim() || !moveTarget}
+              className="bg-violet-600 text-white hover:bg-violet-500"
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete project dialog — requires typing the project name */}
+      <Dialog
+        open={deleteProject !== null}
+        onOpenChange={() => setDeleteProject(null)}
+      >
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-red-500/40 bg-popover text-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <ShieldAlert className="size-5" />
+              Delete project
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              This permanently deletes <strong>{deleteProject?.name}</strong>{" "}
+              and every design file inside it, including version history and
+              comments. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Type <strong className="text-foreground">{deleteProject?.name}</strong>{" "}
+              to confirm:
+            </p>
+            <Input
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="Project name"
+              autoFocus
+              className="border-border bg-card/60 placeholder:text-muted-foreground/70"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => setDeleteProject(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy || deleteConfirm.trim() !== (deleteProject?.name ?? "")}
+              onClick={handleDeleteProject}
+            >
+              {busy ? "Deleting…" : "Delete project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete account dialog — requires typing the display name */}
+      <Dialog open={accountDialog} onOpenChange={setAccountDialog}>
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-red-500/40 bg-popover text-foreground sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <ShieldAlert className="size-5" />
+              Delete account permanently
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              This erases <strong>everything</strong>: your profile, all
+              projects, folders, design files, version history, and comments.
+              You will be signed out immediately. There is no recovery.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Type your display name{" "}
+              <strong className="text-foreground">{user?.name}</strong> to
+              confirm:
+            </p>
+            <Input
+              value={accountConfirm}
+              onChange={(e) => setAccountConfirm(e.target.value)}
+              placeholder="Your display name"
+              autoFocus
+              className="border-border bg-card/60 placeholder:text-muted-foreground/70"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => setAccountDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={
+                busy ||
+                !(user?.name ?? "").trim() ||
+                accountConfirm.trim() !== (user?.name ?? "").trim()
+              }
+              onClick={handleDeleteAccount}
+            >
+              {busy ? "Deleting…" : "Delete everything"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Profile rename dialog */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-border bg-popover text-foreground sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Display name</DialogTitle>
-            <DialogDescription className="text-zinc-500">
+            <DialogDescription className="text-muted-foreground">
               This is the name collaborators see on your cursor and comments.
             </DialogDescription>
           </DialogHeader>
@@ -616,7 +1016,7 @@ export default function Dashboard() {
             onChange={(e) => setProfileName(e.target.value)}
             placeholder="Your name"
             autoFocus
-            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
+            className="border-border bg-card/60 placeholder:text-muted-foreground/70"
           />
           <DialogFooter>
             <Button
@@ -666,16 +1066,16 @@ function FileCard({
 
   return (
     <Card
-      className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-3 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
+      className="group cursor-pointer border-border bg-card/50 p-3 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
       onClick={onOpen}
     >
-      <div className="overflow-hidden rounded-md border border-white/5 bg-[#0d0d11]">
+      <div className="overflow-hidden rounded-md border border-border/60 bg-card">
         <FileThumb doc={doc} name={file.name} />
       </div>
       <div className="mt-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-zinc-100">{file.name}</p>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {projectName} · {timeAgo(file.updatedAt)}
           </p>
         </div>
@@ -686,7 +1086,7 @@ function FileCard({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="hover:bg-white/[0.08]"
+            className="hover:bg-accent"
             onClick={onToggleStar}
             title={file.starred ? "Unstar" : "Star"}
           >
@@ -695,14 +1095,14 @@ function FileCard({
                 "size-4",
                 file.starred
                   ? "fill-amber-400 text-amber-400"
-                  : "text-zinc-500",
+                  : "text-muted-foreground",
               )}
             />
         </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="hover:bg-white/[0.08]">
-                <MoreHorizontal className="size-4 text-zinc-400" />
+              <Button variant="ghost" size="icon-sm" className="hover:bg-accent">
+                <MoreHorizontal className="size-4 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">

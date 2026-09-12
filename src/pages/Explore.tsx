@@ -17,7 +17,7 @@ import { Compass, GitFork, Search, Sparkles, User as UserIcon } from "lucide-rea
 
 const DOT_GRID = {
   backgroundImage:
-    "radial-gradient(rgba(255,255,255,0.07) 1px, transparent 1px)",
+    "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
   backgroundSize: "24px 24px",
 } as const;
 
@@ -38,7 +38,7 @@ function DocThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) {
   if (!doc)
     return (
       <div
-        className="flex h-[200px] items-center justify-center rounded-md bg-[#1c1c22] text-3xl font-bold text-zinc-500"
+        className="flex h-[200px] items-center justify-center rounded-md bg-[#1c1c22] text-3xl font-bold text-muted-foreground"
         style={DOT_GRID}
       >
         {name.slice(0, 1).toUpperCase()}
@@ -99,9 +99,9 @@ export default function Explore() {
   }, [items, search, activeTag]);
 
   return (
-    <div className="min-h-dvh bg-[#0b0b0e] text-zinc-100">
+    <div className="min-h-dvh bg-background text-foreground">
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0b0b0e]/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
           <button className="flex items-center gap-2.5" onClick={() => navigate("/")}>
             <NodeMarkTile className="size-7 rounded-[7px]" />
@@ -113,7 +113,7 @@ export default function Explore() {
             <Button
               variant="ghost"
               size="sm"
-              className="text-zinc-300 hover:bg-white/5 hover:text-white"
+              className="text-foreground/80 hover:bg-white/5 hover:text-white"
               onClick={() => navigate("/dashboard")}
             >
               Dashboard
@@ -141,7 +141,7 @@ export default function Explore() {
           <h1 className="text-3xl font-bold tracking-tight text-white">
             Explore community designs
           </h1>
-          <p className="mt-1 max-w-xl text-sm text-zinc-400">
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
             Browse UI kits, app screens, and interface assets published by other
             teams. Open any design to inspect it, or remix it into your own
             workspace.
@@ -151,12 +151,12 @@ export default function Explore() {
         {/* Search + tags */}
         <div className="mt-8 flex flex-col gap-3">
           <div className="relative max-w-md">
-            <Search className="absolute left-3 top-2.5 size-4 text-zinc-500" />
+            <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search designs, authors, or tags…"
-              className="h-10 border-white/10 bg-[#141419] pl-9 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+              className="h-10 border-border bg-[#141419] pl-9 text-foreground placeholder:text-muted-foreground focus-visible:ring-violet-500/50"
             />
           </div>
           {tags.length > 0 && (
@@ -172,7 +172,7 @@ export default function Explore() {
                       "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                       active
                         ? "border-violet-400/40 bg-violet-500/20 text-violet-200"
-                        : "border-white/10 bg-[#141419] text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+                        : "border-border bg-[#141419] text-muted-foreground hover:border-white/20 hover:text-foreground",
                     )}
                     onClick={() => setActiveTag(tag === "All" ? null : tag)}
                   >
@@ -189,7 +189,7 @@ export default function Explore() {
         {published === undefined ? (
           <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="rounded-xl border border-white/10 bg-[#141419] p-3">
+              <div key={i} className="rounded-xl border border-border bg-[#141419] p-3">
                 <Skeleton className="h-[200px] w-full rounded-md bg-white/5" />
                 <Skeleton className="mt-3 h-4 w-2/3 bg-white/5" />
                 <Skeleton className="mt-2 h-3 w-1/3 bg-white/5" />
@@ -198,8 +198,8 @@ export default function Explore() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="mt-8 rounded-xl border border-dashed border-white/15 py-20 text-center">
-            <Compass className="mx-auto size-8 text-zinc-600" />
-            <p className="mt-3 text-sm text-zinc-400">
+            <Compass className="mx-auto size-8 text-muted-foreground/70" />
+            <p className="mt-3 text-sm text-muted-foreground">
               {items.length === 0
                 ? "Nothing has been published yet. Be the first — open a design and choose Share → Publish to Explore."
                 : "No designs match your search. Try different keywords or clear the tag filter."}
@@ -265,14 +265,14 @@ function ExploreCard({
   const file = useQuery(api.files.get, { id: fileId });
   const doc = file?.doc as DesignDoc | undefined;
   return (
-    <div className="group overflow-hidden rounded-xl border border-white/10 bg-[#141419] text-left transition-all hover:-translate-y-0.5 hover:border-violet-400/40 hover:shadow-lg hover:shadow-black/40">
+    <div className="group overflow-hidden rounded-xl border border-border bg-[#141419] text-left transition-all hover:-translate-y-0.5 hover:border-violet-400/40 hover:shadow-lg hover:shadow-black/40">
       <button onClick={onOpen} className="block w-full text-left" aria-label={`Open ${name}`}>
         <div className="overflow-hidden bg-[#101014]">
           <DocThumb doc={doc} name={name} />
         </div>
         <div className="p-4">
-          <p className="truncate text-sm font-medium text-zinc-100">{name}</p>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+          <p className="truncate text-sm font-medium text-foreground">{name}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <UserIcon className="size-3" />
             {author ?? "Unknown"} · {timeAgo(publishedAt)}
           </p>
@@ -281,7 +281,7 @@ function ExploreCard({
               {tags.slice(0, 4).map((t) => (
                 <span
                   key={t}
-                  className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400 ring-1 ring-white/10"
+                  className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-muted-foreground ring-1 ring-white/10"
                 >
                   {t}
                 </span>
@@ -290,7 +290,7 @@ function ExploreCard({
           )}
         </div>
       </button>
-      <div className="flex items-center gap-1 border-t border-white/10 px-4 py-2.5 text-[11px] text-zinc-500">
+      <div className="flex items-center gap-1 border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground">
         <Sparkles className="size-3 text-violet-400" />
         <span className="flex-1">Click to open and inspect</span>
         <button

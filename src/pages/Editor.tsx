@@ -27,10 +27,11 @@ import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { docToJsx } from "@/lib/designToJsx";
 import { analyzeTokens, formatTokensReport } from "@/lib/designTokens";
-import { ScanSearch } from "lucide-react";
+import { ScanSearch, Sun, Moon, PaintBucket, Check, TriangleAlert } from "lucide-react";
 import { ColorPicker } from "@/components/ColorPicker";
 import { buildButtonNodes } from "@/lib/buttonPreset";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useTheme, canvasBackground } from "@/lib/theme";
 import { MousePointerClick } from "lucide-react";
 import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
 import { LibraryPanel } from "@/components/LibraryPanel";
@@ -1034,6 +1035,10 @@ export default function Editor() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [lintOpen, setLintOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const deleteAccount = useMutation(api.account.deleteAccount);
   const [shareCopied, setShareCopied] = useState(false);
   const [publishTags, setPublishTags] = useState("");
   const [showRulers, setShowRulers] = useState(false);
@@ -1078,7 +1083,8 @@ export default function Editor() {
   const [renamingPage, setRenamingPage] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const themeMode = useTheme((t) => t.mode);
+  const canvasPref = useTheme((t) => t.canvas);  const wrapRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageTargetRef = useRef<{ x: number; y: number } | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -1327,6 +1333,7 @@ export default function Editor() {
     const state = store.getState();
     const other = (presence ?? []).find((p) => p.userId !== user?._id);
     renderDoc(ctx, state.doc, { zoom: state.zoom, panX: state.panX, panY: state.panY }, w, h, dpr, {
+      themeBackground: canvasBackground(themeMode, canvasPref),
       showChrome: !presenting,
       selection: state.selectedIds,
       remoteSelection,
@@ -1337,7 +1344,7 @@ export default function Editor() {
       outlineMode,
       marquee,
     });
-  }, [presence, user, presenting, previewNode, remoteSelection, snapGuides, outlineMode, marquee, store]);
+  }, [presence, user, presenting, previewNode, remoteSelection, snapGuides, outlineMode, marquee, store, themeMode, canvasPref]);
 
   useEffect(() => {
     render();
@@ -2331,6 +2338,59 @@ export default function Editor() {
               <TooltipContent>Show rulers</TooltipContent>
             </Tooltip>
 
+            {/* Theme toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => useTheme.getState().toggle()}
+                >
+                  {themeMode === "dark" ? (
+                    <Sun className="size-4" />
+                  ) : (
+                    <Moon className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {themeMode === "dark" ? "Light mode" : "Dark mode"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Canvas surface preference */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <PaintBucket className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel>Canvas surface</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(
+                  [
+                    { id: "theme", label: "Match app theme" },
+                    { id: "white", label: "White canvas" },
+                    { id: "black", label: "Dark canvas" },
+                  ] as const
+                ).map((opt) => (
+                  <DropdownMenuItem
+                    key={opt.id}
+                    className="cursor-pointer"
+                    onClick={() => useTheme.getState().setCanvas(opt.id)}
+                  >
+                    {canvasPref === opt.id ? (
+                      <Check className="mr-2 size-4" />
+                    ) : (
+                      <span className="mr-2 block size-4" />
+                    )}
+                    {opt.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             {/* Account menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -2350,6 +2410,13 @@ export default function Editor() {
                 >
                   <Layers className="mr-2 size-4" />
                   Dashboard
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                  onClick={() => setDeleteAccountOpen(true)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete account…
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="cursor-pointer text-destructive focus:text-destructive"
@@ -3755,6 +3822,64 @@ export default function Editor() {
         className="hidden"
         onChange={onPickImage}
       />
+
+      {/* Delete account dialog — requires typing your name as consent */}
+      <Dialog open={deleteAccountOpen} onOpenChange={setDeleteAccountOpen}>
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto border-destructive/40 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <TriangleAlert className="size-5" />
+              Delete account permanently
+            </DialogTitle>
+            <DialogDescription>
+              This erases <strong>everything</strong>: all projects, folders,
+              design files, version history, and comments. There is no undo and
+              no recovery. Active sessions are signed out immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              To confirm, type your display name:{" "}
+              <strong className="text-foreground">{user?.name}</strong>
+            </p>
+            <Input
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder="Type your name to confirm"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteAccountOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={
+                deleting ||
+                deleteConfirmName.trim() !== (user?.name ?? "").trim() ||
+                !(user?.name ?? "").trim()
+              }
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await deleteAccount({
+                    consent: deleteConfirmName.trim(),
+                  });
+                  await signOut();
+                  navigate("/");
+                } catch {
+                  // Consent mismatch or backend error: keep the dialog open.
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete everything"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Export dialog */}
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>

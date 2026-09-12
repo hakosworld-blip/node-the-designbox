@@ -155,7 +155,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
                 <Tooltip key={item.id}>
                   <TooltipTrigger asChild>
                     <button
-                      className="group rounded-lg border border-border/60 bg-card/60 p-1.5 text-left transition-colors hover:border-violet-400/50 hover:bg-card"
+                      className="group rounded-lg border border-border/60 bg-card/60 p-1.5 text-left transition-colors hover:border-violet-500/60 hover:bg-card"
                       onClick={() => insert(item)}
                     >
                       <ItemThumb item={item} />

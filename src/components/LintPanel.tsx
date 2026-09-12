@@ -91,41 +91,41 @@ export function LintPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#131318] p-0 text-zinc-100 sm:h-[70vh] sm:max-w-xl sm:rounded-lg sm:border">
-        <DialogHeader className="border-b border-white/[0.06] px-4 py-3">
+      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-popover p-0 text-foreground sm:h-[70vh] sm:max-w-xl sm:rounded-lg sm:border">
+        <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <ScanSearch className="size-4 text-violet-400" />
+            <ScanSearch className="size-4 text-violet-500" />
             Design lint
-            <span className="ml-1 rounded border border-white/10 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
+            <span className="ml-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               {result.checked} nodes
             </span>
           </DialogTitle>
-          <DialogDescription className="text-xs text-zinc-500">
+          <DialogDescription className="text-xs text-muted-foreground">
             Naming, accessibility, layout, and structure checks — adapted from
             OpenPencil's linter. Click an issue to jump to the node.
           </DialogDescription>
         </DialogHeader>
 
         {/* Severity filter */}
-        <div className="flex items-center gap-1 border-b border-white/[0.06] px-4 py-2">
+        <div className="flex items-center gap-1 border-b border-border px-4 py-2">
           {(["all", "error", "warning", "info"] as const).map((f) => (
             <button
               key={f}
               className={cn(
                 "rounded-md px-2 py-1 text-xs capitalize transition-colors",
                 filter === f
-                  ? "bg-white/[0.08] font-medium text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-200",
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => setFilter(f)}
             >
               {f === "all" ? "All" : `${f}s`}
               {f !== "all" && counts[f] > 0 && (
-                <span className="ml-1 text-[10px] text-zinc-500">{counts[f]}</span>
+                <span className="ml-1 text-[10px] text-muted-foreground">{counts[f]}</span>
               )}
             </button>
           ))}
-          <span className="ml-auto text-xs text-zinc-500">
+          <span className="ml-auto text-xs text-muted-foreground">
             {issues.length} issue{issues.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -135,10 +135,10 @@ export function LintPanel({
           {issues.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center">
               <CheckCircle2 className="size-8 text-emerald-400" />
-              <p className="text-sm font-medium text-zinc-200">
+              <p className="text-sm font-medium text-foreground">
                 {result.issues.length === 0 ? "No issues found" : "All clear"}
               </p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-muted-foreground">
                 {result.issues.length === 0
                   ? `Linted ${result.checked} nodes across naming, contrast, layout, and structure.`
                   : "Dismissed issues are hidden until the panel reopens."}
@@ -153,13 +153,13 @@ export function LintPanel({
                 return (
                   <div
                     key={`${issue.rule}-${issue.nodeId ?? idx}`}
-                    className="group rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
+                    className="group rounded-lg border border-border bg-card/50 px-3 py-2.5 transition-colors hover:border-violet-500/60 hover:bg-accent/60"
                   >
                     <div className="flex items-start gap-2.5">
                       <Icon className={cn("mt-0.5 size-4 shrink-0", sev.cls)} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-zinc-200">{issue.message}</p>
-                        <p className="mt-0.5 font-mono text-[10px] text-zinc-600">
+                        <p className="text-sm text-foreground">{issue.message}</p>
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">
                           {LINT_RULE_LABELS[issue.rule] ?? issue.rule} · {issue.severity}
                         </p>
                       </div>
@@ -168,7 +168,7 @@ export function LintPanel({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 px-2 text-[11px] text-violet-300 hover:bg-violet-500/10 hover:text-violet-200"
+                            className="h-6 px-2 text-[11px] text-violet-500 hover:bg-violet-500/10 hover:text-violet-500"
                             onClick={() => applyRename(issue)}
                           >
                             Rename → {String(issue.fix.name).slice(0, 14)}
@@ -178,7 +178,7 @@ export function LintPanel({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-6 px-2 text-[11px] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                            className="h-6 px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                             onClick={() => selectIssue(issue)}
                           >
                             Show
@@ -187,7 +187,7 @@ export function LintPanel({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-[11px] text-zinc-500 hover:bg-white/[0.06]"
+                          className="h-6 px-2 text-[11px] text-muted-foreground hover:bg-accent"
                           onClick={() => dismiss(issue)}
                         >
                           Dismiss

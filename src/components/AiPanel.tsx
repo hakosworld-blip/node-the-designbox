@@ -154,16 +154,16 @@ export function AiPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#131318] p-0 text-zinc-100 sm:h-[70vh] sm:max-w-xl sm:rounded-lg sm:border">
-        <DialogHeader className="border-b border-white/[0.06] px-4 py-3">
+      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-popover p-0 text-foreground sm:h-[70vh] sm:max-w-xl sm:rounded-lg sm:border">
+        <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="size-4 text-violet-400" />
+            <Sparkles className="size-4 text-violet-500" />
             AI assistant
-            <span className="ml-1 rounded border border-white/10 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
+            <span className="ml-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               ⌘J
             </span>
           </DialogTitle>
-          <DialogDescription className="text-xs text-zinc-500">
+          <DialogDescription className="text-xs text-muted-foreground">
             Describe what to build or change — edits land on the canvas in one
             undoable step.
           </DialogDescription>
@@ -176,11 +176,11 @@ export function AiPanel({
         >
           {messages.length === 0 && !busy && (
             <div className="space-y-2 pt-2">
-              <p className="text-xs text-zinc-500">Try:</p>
+              <p className="text-xs text-muted-foreground">Try:</p>
               {QUICK_PROMPTS.map((p) => (
                 <button
                   key={p}
-                  className="block w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:border-violet-400/40 hover:bg-white/[0.05]"
+                  className="block w-full rounded-lg border border-border bg-card/50 px-3 py-2 text-left text-xs text-foreground/80 transition-colors hover:border-violet-500/60 hover:bg-accent"
                   onClick={() => send(p)}
                 >
                   {p}
@@ -194,12 +194,12 @@ export function AiPanel({
               className={
                 m.role === "user"
                   ? "ml-auto max-w-[85%] rounded-lg rounded-br-sm bg-violet-600 px-3 py-2 text-sm text-white"
-                  : "mr-auto max-w-[85%] rounded-lg rounded-bl-sm border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-zinc-200"
+                  : "mr-auto max-w-[85%] rounded-lg rounded-bl-sm border border-border bg-card/60 px-3 py-2 text-sm text-foreground"
               }
             >
               <p className="whitespace-pre-wrap">{m.content}</p>
               {m.meta && (
-                <p className="mt-1.5 font-mono text-[10px] text-zinc-500">
+                <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
                   +{m.meta.created} created · ~{m.meta.updated} updated · −
                   {m.meta.deleted} deleted · undo with ⌘Z
                 </p>
@@ -207,7 +207,7 @@ export function AiPanel({
             </div>
           ))}
           {busy && (
-            <div className="mr-auto flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-zinc-400">
+            <div className="mr-auto flex items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
               Designing…
             </div>
@@ -227,7 +227,7 @@ export function AiPanel({
 
         {/* Settings row */}
         {showSettings ? (
-          <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
+          <div className="space-y-2 border-t border-border px-4 py-3">
             <div className="flex flex-wrap gap-1">
               {PROVIDERS.map((p) => (
                 <button
@@ -235,8 +235,8 @@ export function AiPanel({
                   className={cn(
                     "rounded-md border px-2 py-1 text-[11px] transition-colors",
                     provider === p.id
-                      ? "border-violet-400/50 bg-violet-500/10 text-zinc-100"
-                      : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300",
+                      ? "border-violet-500/60 bg-violet-500/10 text-foreground"
+                      : "border-border text-muted-foreground hover:border-white/25 hover:text-foreground/80",
                   )}
                   onClick={() => setProvider(p.id)}
                 >
@@ -249,20 +249,20 @@ export function AiPanel({
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={`${PROVIDERS.find((p) => p.id === provider)?.label ?? "Provider"} API key (${PROVIDERS.find((p) => p.id === provider)?.keyHint ?? "key"})`}
               type="password"
-              className="h-8 border-white/10 bg-white/[0.03] text-xs"
+              className="h-8 border-border bg-card/60 text-xs"
               autoFocus
             />
             <Input
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder={`Model (default: ${PROVIDERS.find((p) => p.id === provider)?.model ?? "auto"})`}
-              className="h-8 border-white/10 bg-white/[0.03] text-xs"
+              className="h-8 border-border bg-card/60 text-xs"
             />
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-zinc-400 hover:text-zinc-100"
+                className="h-7 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowSettings(false)}
               >
                 Cancel
@@ -275,16 +275,16 @@ export function AiPanel({
                 Save
               </Button>
             </div>
-            <p className="text-[10px] text-zinc-600">
+            <p className="text-[10px] text-muted-foreground/70">
               Stored only in this browser. Requests are proxied through the app
               backend; the key is never persisted server-side. A server-wide
               GROQ_API_KEY can be set instead of a personal key.
             </p>
           </div>
         ) : (
-          <div className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-3">
+          <div className="flex items-center gap-2 border-t border-border px-4 py-3">
             <button
-              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title="AI settings"
               onClick={() => setShowSettings(true)}
             >
@@ -301,7 +301,7 @@ export function AiPanel({
                 }
               }}
               placeholder="Describe a change… (Enter to send)"
-              className="h-9 border-white/10 bg-white/[0.03] text-sm placeholder:text-zinc-600"
+              className="h-9 border-border bg-card/60 text-sm placeholder:text-muted-foreground/70"
               disabled={busy}
             />
             <Button

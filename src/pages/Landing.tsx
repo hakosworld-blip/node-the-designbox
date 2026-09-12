@@ -23,7 +23,7 @@ const fadeUp = {
 
 const DOT_GRID = {
   backgroundImage:
-    "radial-gradient(rgba(255,255,255,0.07) 1px, transparent 1px)",
+    "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
   backgroundSize: "24px 24px",
 } as const;
 
@@ -96,10 +96,10 @@ export default function Landing() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-dvh bg-[#0b0b0e] text-zinc-100"
+      className="min-h-dvh bg-background text-foreground"
     >
       {/* Nav */}
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b0b0e]/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
           <button className="flex items-center gap-2.5" onClick={() => navigate("/")}>
             <NodeMarkTile className="size-8" />
@@ -110,18 +110,18 @@ export default function Landing() {
           <nav className="hidden items-center gap-1 md:flex">
             <a
               href="#features"
-              className="rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-white"
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-white"
             >
               Features
             </a>
             <a
               href="#workflow"
-              className="rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-white"
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-white"
             >
               Workflow
             </a>
             <button
-              className="rounded-md px-3 py-2 text-sm text-zinc-400 transition-colors hover:text-white"
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-white"
               onClick={() => navigate("/explore")}
             >
               Explore
@@ -142,7 +142,7 @@ export default function Landing() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="hidden text-zinc-300 hover:bg-white/5 hover:text-white sm:inline-flex"
+                  className="hidden text-foreground/80 hover:bg-white/5 hover:text-white sm:inline-flex"
                   onClick={() => navigate("/auth")}
                 >
                   Sign in
@@ -162,7 +162,7 @@ export default function Landing() {
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden border-b border-white/10">
+      <section className="relative overflow-hidden border-b border-border">
         {/* Isometric cube field backdrop */}
         <div
           aria-hidden
@@ -214,7 +214,7 @@ export default function Landing() {
               </span>
             </h1>
 
-            <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-relaxed text-zinc-400 md:text-lg lg:mx-0">
+            <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg lg:mx-0">
               Node is the collaborative design tool where your whole team builds
               interface assets in one shared file. Designers draw, reviewers
               comment, developers export production-ready assets — no downloads,
@@ -233,7 +233,7 @@ export default function Landing() {
               <Button
                 size="lg"
                 variant="outline"
-                className="h-11 gap-2 border-white/15 bg-white/5 px-6 text-zinc-100 backdrop-blur hover:bg-white/10 hover:text-white"
+                className="h-11 gap-2 border-white/15 bg-white/5 px-6 text-foreground backdrop-blur hover:bg-white/10 hover:text-white"
                 onClick={() => navigate("/explore")}
               >
                 <Compass className="size-4" />
@@ -255,7 +255,7 @@ export default function Landing() {
                   </span>
                 ))}
               </div>
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-muted-foreground">
                 Designing together, right now
               </span>
             </div>
@@ -268,14 +268,14 @@ export default function Landing() {
             transition={{ duration: 0.7, delay: 0.15, ease: "easeOut" }}
             className="relative"
           >
-            <div className="overflow-hidden rounded-xl border border-white/10 bg-[#141419] shadow-2xl shadow-black/60 ring-1 ring-black/40">
+            <div className="overflow-hidden rounded-xl border border-border bg-[#141419] shadow-2xl shadow-black/60 ring-1 ring-black/40">
               {/* Window chrome */}
-              <div className="flex h-10 items-center gap-2 border-b border-white/10 bg-[#1c1c22] px-3.5">
+              <div className="flex h-10 items-center gap-2 border-b border-border bg-[#1c1c22] px-3.5">
                 <NodeMarkTile className="size-5 rounded-[5px]" />
-                <span className="text-xs font-medium text-zinc-300">
+                <span className="text-xs font-medium text-foreground/80">
                   Checkout flow
                 </span>
-                <span className="ml-auto flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-emerald-400" />
                   All changes saved
                 </span>
@@ -286,8 +286,8 @@ export default function Landing() {
                 style={DOT_GRID}
               >
                 {/* Layers panel */}
-                <div className="absolute left-0 top-0 h-full w-36 border-r border-white/10 bg-[#141419]/80 p-3 text-left">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                <div className="absolute left-0 top-0 h-full w-36 border-r border-border bg-[#141419]/80 p-3 text-left">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     Layers
                   </p>
                   <div className="mt-2 space-y-1">
@@ -303,7 +303,7 @@ export default function Landing() {
                         className={`flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] ${
                           i === 2
                             ? "bg-violet-500/20 text-violet-200"
-                            : "text-zinc-400"
+                            : "text-muted-foreground"
                         }`}
                       >
                         <MousePointer2 className="size-3" />
@@ -341,7 +341,7 @@ export default function Landing() {
                   <div className="mx-3 mt-3 h-7 rounded-md bg-cyan-500/60" />
                 </div>
                 {/* Frame 2 */}
-                <div className="absolute left-[24rem] top-20 hidden h-52 w-36 rounded-lg border border-white/10 bg-[#1c1c22]/60 lg:block">
+                <div className="absolute left-[24rem] top-20 hidden h-52 w-36 rounded-lg border border-border bg-[#1c1c22]/60 lg:block">
                   <div className="mx-3 mt-3 h-2.5 w-14 rounded-full bg-cyan-400/70" />
                   <div className="mx-3 mt-3 h-12 rounded-md bg-white/10" />
                   <div className="mx-3 mt-2 h-12 rounded-md bg-white/10" />
@@ -382,9 +382,9 @@ export default function Landing() {
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.6, delay: 0.5 }}
-              className="absolute -bottom-6 -left-4 hidden rounded-lg border border-white/10 bg-[#1c1c22]/95 p-3 shadow-xl backdrop-blur sm:block"
+              className="absolute -bottom-6 -left-4 hidden rounded-lg border border-border bg-[#1c1c22]/95 p-3 shadow-xl backdrop-blur sm:block"
             >
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                 Inspect · CTA button
               </p>
               <div className="mt-1.5 space-y-1 font-mono text-[11px] leading-relaxed">
@@ -402,12 +402,12 @@ export default function Landing() {
         </div>
 
         {/* Capability ticker */}
-        <div className="relative border-t border-white/10 bg-[#0e0e12] py-3.5">
+        <div className="relative border-t border-border bg-[#0e0e12] py-3.5">
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-center gap-x-6 gap-y-1.5 px-6">
             {TICKER.map((t) => (
               <span
                 key={t}
-                className="flex items-center gap-2 text-xs font-medium text-zinc-500"
+                className="flex items-center gap-2 text-xs font-medium text-muted-foreground"
               >
                 <span className="size-1 rounded-full bg-violet-400/70" />
                 {t}
@@ -429,7 +429,7 @@ export default function Landing() {
           <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
             Everything a product team needs, in one file
           </h2>
-          <p className="mt-4 text-zinc-400">
+          <p className="mt-4 text-muted-foreground">
             From first wireframe to final asset export — without switching tools,
             sending files, or losing track of versions.
           </p>
@@ -438,14 +438,14 @@ export default function Landing() {
         <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <motion.div key={f.title} {...fadeUp}>
-              <div className="group h-full rounded-xl border border-white/10 bg-[#141419] p-6 transition-all hover:-translate-y-0.5 hover:border-violet-400/40 hover:bg-[#18181f] hover:shadow-lg hover:shadow-black/40">
+              <div className="group h-full rounded-xl border border-border bg-[#141419] p-6 transition-all hover:-translate-y-0.5 hover:border-violet-400/40 hover:bg-[#18181f] hover:shadow-lg hover:shadow-black/40">
                 <span className="flex size-10 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-500/10">
                   <f.icon className="size-5 text-violet-300" />
                 </span>
                 <h3 className="mt-4 text-base font-semibold text-white">
                   {f.title}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   {f.body}
                 </p>
               </div>
@@ -455,7 +455,7 @@ export default function Landing() {
       </section>
 
       {/* Workflow strip */}
-      <section id="workflow" className="border-y border-white/10 bg-[#0e0e12]">
+      <section id="workflow" className="border-y border-border bg-[#0e0e12]">
         <div className="mx-auto w-full max-w-6xl px-6 py-24">
           <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400/90">
@@ -464,7 +464,7 @@ export default function Landing() {
             <h2 className="mt-3 text-3xl font-bold tracking-tight text-white md:text-4xl">
               Three roles, one source of truth
             </h2>
-            <p className="mt-4 text-zinc-400">
+            <p className="mt-4 text-muted-foreground">
               Node keeps designers, reviewers, and engineers working from the
               same file — in the browser, on any platform.
             </p>
@@ -493,7 +493,7 @@ export default function Landing() {
                 {...fadeUp}
                 transition={{ ...fadeUp.transition, delay: i * 0.08 }}
               >
-                <div className="relative h-full overflow-hidden rounded-xl border border-white/10 bg-[#141419] p-6">
+                <div className="relative h-full overflow-hidden rounded-xl border border-border bg-[#141419] p-6">
                   <span className="absolute inset-x-0 top-0 h-0.5 bg-violet-500/60" />
                   <p className="font-mono text-3xl font-bold text-violet-400">
                     {s.step}
@@ -501,7 +501,7 @@ export default function Landing() {
                   <h3 className="mt-3 text-base font-semibold text-white">
                     {s.title}
                   </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                     {s.body}
                   </p>
                 </div>
@@ -521,14 +521,14 @@ export default function Landing() {
           ].map((s) => (
             <motion.div key={s.label} {...fadeUp}>
               <p className="text-4xl font-bold text-white">{s.value}</p>
-              <p className="mt-1.5 text-sm text-zinc-500">{s.label}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">{s.label}</p>
             </motion.div>
           ))}
         </div>
       </section>
 
       {/* CTA */}
-      <section className="relative overflow-hidden border-t border-white/10">
+      <section className="relative overflow-hidden border-t border-border">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <div className="absolute inset-0" style={DOT_GRID} />
           <NodeMark
@@ -543,7 +543,7 @@ export default function Landing() {
             <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl">
               Your next design file is a URL away
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-zinc-400">
+            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
               Create a workspace, invite your team, and start shipping interface
               assets together. Sign up with just your email — no credit card, no
               desktop app.
@@ -561,8 +561,8 @@ export default function Landing() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 py-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-zinc-500 sm:flex-row">
+      <footer className="border-t border-border py-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-muted-foreground sm:flex-row">
           <div className="flex items-center gap-2.5">
             <NodeMarkTile className="size-6 rounded-[5px]" />
             <span className="font-bold uppercase tracking-[0.22em] text-white">

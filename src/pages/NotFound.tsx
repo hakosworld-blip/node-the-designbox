@@ -39,7 +39,7 @@ export default function NotFound() {
 
   return (
     <div
-      className="relative flex min-h-dvh flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100"
+      className="relative flex min-h-dvh flex-col overflow-hidden bg-background text-foreground"
       onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })}
     >
       {/* Canvas dot grid */}
@@ -48,7 +48,7 @@ export default function NotFound() {
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.07) 1px, transparent 1px)",
+            "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
           backgroundSize: "24px 24px",
         }}
       />
@@ -69,12 +69,12 @@ export default function NotFound() {
           width: "100vh",
         }}
       />
-      <div aria-hidden className="absolute left-0 top-0 z-20 hidden size-5 border-r border-b border-white/10 bg-[#1c1c22] sm:block" />
+      <div aria-hidden className="absolute left-0 top-0 z-20 hidden size-5 border-r border-b border-border bg-[#1c1c22] sm:block" />
 
       {/* Brand + fake collaborators */}
       <div className="absolute left-6 top-9 z-20 hidden items-center gap-2 sm:flex">
         <img src={logo} alt="Node" className="size-5 rounded" />
-        <span className="text-xs font-semibold tracking-wide text-zinc-400">
+        <span className="text-xs font-semibold tracking-wide text-muted-foreground">
           Node
         </span>
       </div>
@@ -148,7 +148,7 @@ export default function NotFound() {
             </span>
 
             {/* Dimension chip */}
-            <span className="absolute -bottom-9 right-0 rounded bg-[#1c1c22] px-2 py-0.5 font-mono text-[11px] text-zinc-300 ring-1 ring-white/10">
+            <span className="absolute -bottom-9 right-0 rounded bg-[#1c1c22] px-2 py-0.5 font-mono text-[11px] text-foreground/80 ring-1 ring-white/10">
               404 × 404
             </span>
           </div>
@@ -176,7 +176,7 @@ export default function NotFound() {
           <h1 className="text-xl font-semibold text-white">
             This frame doesn't exist
           </h1>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-zinc-400">
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
             It may have been moved, renamed, or never drawn. Your collaborators
             are still in the file, though.
           </p>
@@ -190,7 +190,7 @@ export default function NotFound() {
             </Button>
             <Button
               variant="outline"
-              className="gap-2 border-white/15 bg-transparent text-zinc-200 hover:bg-white/5 hover:text-white"
+              className="gap-2 border-white/15 bg-transparent text-foreground hover:bg-white/5 hover:text-white"
               onClick={() => navigate("/explore")}
             >
               <Compass className="size-4" />
@@ -201,9 +201,9 @@ export default function NotFound() {
       </div>
 
       {/* Zoom / coordinates pill */}
-      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-3 rounded-md bg-[#1c1c22] px-3 py-1.5 font-mono text-[11px] text-zinc-300 ring-1 ring-white/10">
+      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-3 rounded-md bg-[#1c1c22] px-3 py-1.5 font-mono text-[11px] text-foreground/80 ring-1 ring-white/10">
         <span>100%</span>
-        <span className="text-zinc-600">|</span>
+        <span className="text-muted-foreground/70">|</span>
         <span className="tabular-nums">
           x {pos ? pos.x : "—"} · y {pos ? pos.y : "—"}
         </span>

@@ -34,9 +34,16 @@ const schema = defineSchema(
 
     // ---- DesignBox ----
 
+    folders: defineTable({
+      ownerId: v.id("users"),
+      name: v.string(),
+      createdAt: v.number(),
+    }).index("by_owner", ["ownerId"]),
+
     projects: defineTable({
       ownerId: v.id("users"),
       name: v.string(),
+      folderId: v.optional(v.id("folders")),
       createdAt: v.number(),
     }).index("by_owner", ["ownerId"]),
 

@@ -105,14 +105,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   };
 
   return (
-    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100">
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-background text-foreground">
       {/* Canvas backdrop with drifting collaborator cursors */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)",
+            "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
           backgroundSize: "24px 24px",
         }}
       />
@@ -150,12 +150,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       {/* Auth Content */}
       <div className="relative z-10 flex flex-1 items-center justify-center px-6 py-14">
         {step === "signIn" ? (
-          <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#141419] shadow-2xl shadow-black/60">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-[#141419] shadow-2xl shadow-black/60">
             <div className="px-6 pb-6 pt-7 text-center">
               <h1 className="text-lg font-semibold text-white">
                 Design together, live
               </h1>
-              <p className="mt-1.5 text-sm text-zinc-400">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 Enter your email to log in or sign up
               </p>
             </div>
@@ -163,12 +163,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               <div className="px-6">
                 <div className="relative flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-zinc-500" />
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
                       name="email"
                       placeholder="name@example.com"
                       type="email"
-                      className="h-11 border-white/10 bg-[#1c1c22] pl-9 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-violet-500/50"
+                      className="h-11 border-border bg-[#1c1c22] pl-9 text-foreground placeholder:text-muted-foreground focus-visible:ring-violet-500/50"
                       disabled={isLoading}
                       required
                     />
@@ -191,17 +191,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <div className="mt-5">
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-white/10" />
+                      <span className="w-full border-t border-border" />
                     </div>
                     <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-[#141419] px-2 text-zinc-500">Or</span>
+                      <span className="bg-[#141419] px-2 text-muted-foreground">Or</span>
                     </div>
                   </div>
 
                   <Button
                     type="button"
                     variant="outline"
-                    className="mt-4 w-full border-white/15 bg-transparent text-zinc-200 hover:bg-white/5 hover:text-white"
+                    className="mt-4 w-full border-white/15 bg-transparent text-foreground hover:bg-white/5 hover:text-white"
                     onClick={handleGuestLogin}
                     disabled={isLoading}
                   >
@@ -211,25 +211,25 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </div>
               </div>
             </form>
-            <div className="mt-6 rounded-b-xl border-t border-white/10 bg-[#101014] px-6 py-3.5 text-center text-xs text-zinc-500">
+            <div className="mt-6 rounded-b-xl border-t border-border bg-[#101014] px-6 py-3.5 text-center text-xs text-muted-foreground">
               Secured by{" "}
               <a
                 href="https://freebuff.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline transition-colors hover:text-zinc-300"
+                className="underline transition-colors hover:text-foreground/80"
               >
                 freebuff.com
               </a>
             </div>
           </div>
         ) : (
-          <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#141419] shadow-2xl shadow-black/60">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-[#141419] shadow-2xl shadow-black/60">
             <div className="px-6 pb-2 pt-7 text-center">
               <h1 className="text-lg font-semibold text-white">Check your email</h1>
-              <p className="mt-1.5 text-sm text-zinc-400">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 We've sent a code to{" "}
-                <span className="font-medium text-zinc-200">{step.email}</span>
+                <span className="font-medium text-foreground">{step.email}</span>
               </p>
             </div>
             <form onSubmit={handleOtpSubmit}>
@@ -262,7 +262,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 {error && (
                   <p className="mt-3 text-center text-sm text-red-400">{error}</p>
                 )}
-                <p className="mt-4 text-center text-sm text-zinc-500">
+                <p className="mt-4 text-center text-sm text-muted-foreground">
                   Didn't receive a code?{" "}
                   <button
                     type="button"
@@ -295,19 +295,19 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   variant="ghost"
                   onClick={() => setStep("signIn")}
                   disabled={isLoading}
-                  className="mt-2 w-full text-zinc-400 hover:bg-white/5 hover:text-white"
+                  className="mt-2 w-full text-muted-foreground hover:bg-white/5 hover:text-white"
                 >
                   Use different email
                 </Button>
               </div>
             </form>
-            <div className="rounded-b-xl border-t border-white/10 bg-[#101014] px-6 py-3.5 text-center text-xs text-zinc-500">
+            <div className="rounded-b-xl border-t border-border bg-[#101014] px-6 py-3.5 text-center text-xs text-muted-foreground">
               Secured by{" "}
               <a
                 href="https://freebuff.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline transition-colors hover:text-zinc-300"
+                className="underline transition-colors hover:text-foreground/80"
               >
                 freebuff.com
               </a>

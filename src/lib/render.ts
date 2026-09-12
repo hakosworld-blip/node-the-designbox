@@ -51,6 +51,8 @@ export interface RenderOptions {
   snapGuides?: SnapGuide[]; // smart alignment guides to paint
   outlineMode?: boolean; // Figma-style outlines-only rendering
   marquee?: Bounds | null; // rubber-band selection rectangle
+  /** App-theme canvas override (light mode => white canvas). */
+  themeBackground?: string;
 }
 
 function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
@@ -293,6 +295,25 @@ function paintHandles(
   ctx.restore();
 }
 
+/** Parse a css color and return relative luminance (0 dark - 1 light). */
+export function bgLuminance(css: string): number | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(css.trim());
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
+  const rgb = /rgba?\(([^)]+)\)/.exec(css);
+  if (rgb) {
+    const parts = rgb[1].split(",").map((x) => parseFloat(x));
+    if (parts.length >= 3) return (0.299 * parts[0] + 0.587 * parts[1] + 0.114 * parts[2]) / 255;
+  }
+  return null;
+}
+
 export function renderDoc(
   ctx: CanvasRenderingContext2D,
   doc: DesignDoc,
@@ -306,13 +327,22 @@ export function renderDoc(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  ctx.fillStyle = doc.background || "#101012";
+  // Theme override (editor light/dark preference) wins over the doc's own
+  // background so the canvas follows the app setting.
+  const bg = opts.themeBackground ?? doc.background ?? "#101012";
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
-  // Dot grid on the infinite canvas surface
+  // Dot grid auto-contrasts with the background (dark dots on light bg).
   const gridStep = 32 * t.zoom;
   if (gridStep > 10) {
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    const lum = bgLuminance(bg);
+    ctx.fillStyle =
+      lum === null
+        ? "rgba(255,255,255,0.10)"
+        : lum > 0.55
+          ? "rgba(0,0,0,0.14)"
+          : "rgba(255,255,255,0.10)";
     const ox = ((t.panX % gridStep) + gridStep) % gridStep;
     const oy = ((t.panY % gridStep) + gridStep) % gridStep;
     for (let gx = ox; gx < width; gx += gridStep) {
