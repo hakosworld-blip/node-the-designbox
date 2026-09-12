@@ -64,7 +64,7 @@ export const chat = action({
     const model =
       args.model ??
       (provider === "groq"
-        ? "llama-3.3-70b-versatile"
+        ? "openai/gpt-oss-120b"
         : provider === "anthropic"
           ? "claude-3-5-sonnet"
           : "gpt-4o-mini");

@@ -30,7 +30,7 @@ const MODEL_STORE = "node.ai.model";
 const PROVIDER_STORE = "node.ai.provider";
 
 const PROVIDERS = [
-  { id: "groq", label: "Groq", keyHint: "gsk_…", model: "llama-3.3-70b-versatile" },
+  { id: "groq", label: "Groq", keyHint: "gsk_…", model: "openai/gpt-oss-120b" },
   { id: "openrouter", label: "OpenRouter", keyHint: "sk-or-…", model: "anthropic/claude-3.5-sonnet" },
   { id: "openai", label: "OpenAI", keyHint: "sk-…", model: "gpt-4o-mini" },
   { id: "anthropic", label: "Anthropic", keyHint: "sk-ant-…", model: "claude-3-5-sonnet" },
