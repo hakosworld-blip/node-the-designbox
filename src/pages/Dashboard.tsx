@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { NodeMarkTile } from "@/components/NodeLogo";
 import {
   Compass,
   FilePlus2,
@@ -91,8 +92,8 @@ function FileThumb({ doc, name }: { doc: DesignDoc | undefined; name: string }) 
   }, [doc]);
   if (!doc)
     return (
-      <div className="flex h-[180px] items-center justify-center rounded-md bg-gradient-to-br from-violet-500/40 to-cyan-500/25">
-        <span className="text-3xl font-bold text-white/90">
+      <div className="flex h-[180px] items-center justify-center rounded-md border border-white/5 bg-white/[0.03]">
+        <span className="text-3xl font-bold text-zinc-700">
           {name.slice(0, 1).toUpperCase()}
         </span>
       </div>
@@ -202,24 +203,35 @@ export default function Dashboard() {
   ];
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="relative min-h-screen bg-[#0b0b0e] text-zinc-100">
+      {/* Canvas dot grid backdrop */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{
+          backgroundImage:
+            "radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+        }}
+      />
+      {/* Violet ambience */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed left-1/2 top-0 h-72 w-[50rem] -translate-x-1/2 rounded-full bg-violet-600/10 blur-[130px]"
+      />
+
       {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-border/70 bg-background/95 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0b0b0e]/85 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-          <button
-            className="flex items-center gap-2"
-            onClick={() => navigate("/dashboard")}
-          >
-            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-violet-500/20">
-              <LayoutGrid className="size-4 text-white" />
-            </span>
-            <span className="text-sm font-semibold tracking-tight">Node</span>
+          <button className="flex items-center gap-2.5" onClick={() => navigate("/dashboard")}>
+            <NodeMarkTile className="size-7 rounded-[8px]" />
+            <span className="text-sm font-bold uppercase tracking-[0.22em]">Node</span>
           </button>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5"
+              className="gap-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
               onClick={() => navigate("/explore")}
             >
               <Compass className="size-4" />
@@ -227,11 +239,14 @@ export default function Dashboard() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="gap-2 px-2">
-                  <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white">
+                <Button
+                  variant="ghost"
+                  className="gap-2 px-2 hover:bg-white/[0.06]"
+                >
+                  <span className="flex size-7 items-center justify-center rounded-full bg-violet-500 text-[11px] font-semibold text-white">
                     {(user?.name ?? "U").slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="text-sm">{user?.name ?? "Account"}</span>
+                    </span>
+                  <span className="text-sm text-zinc-200">{user?.name ?? "Account"}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -246,10 +261,7 @@ export default function Dashboard() {
                   Rename profile
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleSignOut}
-                  className="cursor-pointer"
-                >
+                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                   <LogOut className="mr-2 size-4" />
                   Sign out
                 </DropdownMenuItem>
@@ -259,13 +271,13 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
         {/* Heading */}
         <div className="flex flex-col gap-1">
           <p className="text-xs font-medium uppercase tracking-widest text-violet-400">
             Workspace
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
             Your UI and UX projects
           </h1>
         </div>
@@ -273,11 +285,11 @@ export default function Dashboard() {
         {/* Projects strip */}
         <section className="mt-8">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground">Projects</h2>
+            <h2 className="text-sm font-medium text-zinc-500">Projects</h2>
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-muted-foreground"
+              className="gap-1.5 text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
               onClick={() => {
                 setNewName("");
                 setNewDialog("project");
@@ -290,23 +302,23 @@ export default function Dashboard() {
           <div className="mt-3 flex flex-wrap gap-2">
             {projects === undefined ? (
               <>
-                <Skeleton className="h-8 w-28 rounded-full" />
-                <Skeleton className="h-8 w-24 rounded-full" />
-                <Skeleton className="h-8 w-32 rounded-full" />
+                <Skeleton className="h-8 w-28 rounded-full bg-white/[0.06]" />
+                <Skeleton className="h-8 w-24 rounded-full bg-white/[0.06]" />
+                <Skeleton className="h-8 w-32 rounded-full bg-white/[0.06]" />
               </>
             ) : projectList.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-zinc-500">
                 Setting up your workspace…
               </p>
             ) : (
               projectList.map((p) => (
                 <Badge
                   key={p._id}
-                  variant={p._id === projectId ? "default" : "outline"}
+                  variant="outline"
                   className={cn(
-                    "cursor-pointer rounded-full px-3 py-1 text-xs font-normal transition-colors",
+                    "cursor-pointer rounded-full border-white/10 px-3 py-1 text-xs font-normal transition-colors hover:border-white/25 hover:bg-white/[0.04]",
                     p._id === projectId &&
-                      "border-transparent bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white",
+                      "border-violet-400/40 bg-violet-500/15 text-violet-200 hover:border-violet-400/60",
                   )}
                   onClick={() => setProjectId(p._id)}
                 >
@@ -319,34 +331,34 @@ export default function Dashboard() {
 
         {/* Toolbar */}
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.03] p-1">
             {tabs.map((t) => (
               <button
                 key={t.key}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm transition-colors",
                   tab === t.key
-                    ? "bg-secondary font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-white/[0.08] font-medium text-zinc-100"
+                    : "text-zinc-500 hover:text-zinc-200",
                 )}
                 onClick={() => setTab(t.key)}
               >
                 {t.label}
-              </button>
+</button>
             ))}
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-2.5 size-4 text-zinc-600" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search files"
-                className="h-9 w-52 pl-8"
+                className="h-9 w-52 border-white/10 bg-white/[0.03] pl-8 placeholder:text-zinc-600 focus-visible:ring-violet-500/40"
               />
             </div>
             <Button
-              className="gap-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              className="gap-2 bg-violet-600 text-white hover:bg-violet-500"
               onClick={() => {
                 setNewName("");
                 setTemplate("mobile");
@@ -364,15 +376,18 @@ export default function Dashboard() {
           {files === undefined ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[0, 1, 2].map((i) => (
-                <Card key={i} className="border-border/70 p-3 shadow-none">
-                  <Skeleton className="h-[180px] w-full" />
-                  <Skeleton className="mt-3 h-4 w-2/3" />
+                <Card
+                  key={i}
+                  className="border-white/[0.06] bg-white/[0.02] p-3 shadow-none"
+                >
+                  <Skeleton className="h-[180px] w-full bg-white/[0.06]" />
+                  <Skeleton className="mt-3 h-4 w-2/3 bg-white/[0.06]" />
                 </Card>
               ))}
             </div>
           ) : visibleFiles.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border py-16 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-white/10 py-16 text-center">
+              <p className="text-sm text-zinc-500">
                 {tab === "trash"
                   ? "Trash is empty."
                   : tab === "starred"
@@ -416,22 +431,22 @@ export default function Dashboard() {
         {tab === "recent" && fileList.filter((f) => !f.trashed).length === 0 && (
           <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Card
-              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+              className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-5 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
               onClick={() => {
                 setTemplate("mobile");
                 setNewName("Mobile app");
                 setNewDialog("file");
               }}
             >
-              <Smartphone className="size-5 text-cyan-400" />
-              <p className="mt-3 text-sm font-medium">Mobile app template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <Smartphone className="size-5 text-violet-400" />
+              <p className="mt-3 text-sm font-medium text-zinc-100">Mobile app template</p>
+              <p className="mt-1 text-xs text-zinc-500">
                 A ready-made phone screen with a header, hero card, and buttons
                 you can restyle.
               </p>
             </Card>
             <Card
-              className="cursor-pointer border-border/70 p-5 shadow-none transition-colors hover:border-violet-400/50"
+              className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-5 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
               onClick={() => {
                 setTemplate("web");
                 setNewName("Web dashboard");
@@ -439,8 +454,8 @@ export default function Dashboard() {
               }}
             >
               <LayoutGrid className="size-5 text-violet-400" />
-              <p className="mt-3 text-sm font-medium">Web dashboard template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-3 text-sm font-medium text-zinc-100">Web dashboard template</p>
+              <p className="mt-1 text-xs text-zinc-500">
                 A desktop frame with sidebar navigation and metric cards.
               </p>
             </Card>
@@ -450,10 +465,10 @@ export default function Dashboard() {
 
       {/* New file dialog */}
       <Dialog open={newDialog === "file"} onOpenChange={() => setNewDialog(null)}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New design file</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-500">
               Pick a starting point. Templates come with ready-made assets.
             </DialogDescription>
           </DialogHeader>
@@ -463,6 +478,7 @@ export default function Dashboard() {
               onChange={(e) => setNewName(e.target.value)}
               placeholder="File name"
               autoFocus
+              className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
             />
             <div className="grid grid-cols-3 gap-2">
               {(["blank", "mobile", "web"] as const).map((t) => (
@@ -471,8 +487,8 @@ export default function Dashboard() {
                   className={cn(
                     "rounded-md border px-2 py-2 text-xs capitalize transition-colors",
                     template === t
-                      ? "border-violet-400 bg-violet-500/10 font-medium text-foreground"
-                      : "border-border text-muted-foreground hover:border-violet-400/40",
+                      ? "border-violet-400/50 bg-violet-500/10 font-medium text-zinc-100"
+                      : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300",
                   )}
                   onClick={() => setTemplate(t)}
                 >
@@ -483,7 +499,7 @@ export default function Dashboard() {
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-9 rounded-md border border-white/10 bg-[#0b0b0e] px-3 text-sm text-zinc-200"
             >
               {projectList.map((p) => (
                 <option key={p._id} value={p._id}>
@@ -496,7 +512,7 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateFile}
               disabled={!newName.trim() || !projectId}
-              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              className="bg-violet-600 text-white hover:bg-violet-500"
             >
               Create
             </Button>
@@ -509,10 +525,10 @@ export default function Dashboard() {
         open={newDialog === "project"}
         onOpenChange={() => setNewDialog(null)}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-500">
               Group related design files together.
             </DialogDescription>
           </DialogHeader>
@@ -521,13 +537,14 @@ export default function Dashboard() {
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Project name"
             autoFocus
+            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
             onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
           />
           <DialogFooter>
             <Button
               onClick={handleCreateProject}
               disabled={!newName.trim()}
-              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              className="bg-violet-600 text-white hover:bg-violet-500"
             >
               Create
             </Button>
@@ -540,11 +557,11 @@ export default function Dashboard() {
         open={publishFor !== null}
         onOpenChange={(open) => !open && setPublishFor(null)}
       >
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Publish to Explore</DialogTitle>
-            <DialogDescription>
-              “{publishFor?.name}” will be listed in the public catalog for
+            <DialogDescription className="text-zinc-500">
+              "{publishFor?.name}" will be listed in the public catalog for
               anyone to find, inspect, and remix.
             </DialogDescription>
           </DialogHeader>
@@ -552,13 +569,18 @@ export default function Dashboard() {
             placeholder="Tags, comma separated (e.g. mobile, ecommerce)"
             value={publishTags}
             onChange={(e) => setPublishTags(e.target.value)}
+            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
           />
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setPublishFor(null)}>
+            <Button
+              variant="ghost"
+              className="text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+              onClick={() => setPublishFor(null)}
+            >
               Cancel
             </Button>
             <Button
-              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              className="bg-violet-600 text-white hover:bg-violet-500"
               onClick={() => {
                 if (!publishFor) return;
                 publishFile({
@@ -582,10 +604,10 @@ export default function Dashboard() {
 
       {/* Profile rename dialog */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Display name</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-500">
               This is the name collaborators see on your cursor and comments.
             </DialogDescription>
           </DialogHeader>
@@ -594,11 +616,12 @@ export default function Dashboard() {
             onChange={(e) => setProfileName(e.target.value)}
             placeholder="Your name"
             autoFocus
+            className="border-white/10 bg-white/[0.03] placeholder:text-zinc-600"
           />
           <DialogFooter>
             <Button
               disabled={!profileName.trim()}
-              className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90"
+              className="bg-violet-600 text-white hover:bg-violet-500"
               onClick={async () => {
                 await updateProfile({ name: profileName.trim() });
                 setRenameOpen(false);
@@ -643,26 +666,27 @@ function FileCard({
 
   return (
     <Card
-      className="group cursor-pointer border-border/70 p-3 shadow-none transition-colors hover:border-violet-400/50"
+      className="group cursor-pointer border-white/[0.06] bg-white/[0.02] p-3 shadow-none transition-colors hover:border-violet-400/40 hover:bg-white/[0.04]"
       onClick={onOpen}
     >
-      <div className="overflow-hidden rounded-md bg-surface-canvas">
+      <div className="overflow-hidden rounded-md border border-white/5 bg-[#0d0d11]">
         <FileThumb doc={doc} name={file.name} />
       </div>
       <div className="mt-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{file.name}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="truncate text-sm font-medium text-zinc-100">{file.name}</p>
+          <p className="mt-0.5 text-xs text-zinc-500">
             {projectName} · {timeAgo(file.updatedAt)}
           </p>
         </div>
         <div
-          className="flex shrink-0 items-center gap-0.5"
+          className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           <Button
             variant="ghost"
             size="icon-sm"
+            className="hover:bg-white/[0.08]"
             onClick={onToggleStar}
             title={file.starred ? "Unstar" : "Star"}
           >
@@ -671,14 +695,14 @@ function FileCard({
                 "size-4",
                 file.starred
                   ? "fill-amber-400 text-amber-400"
-                  : "text-muted-foreground",
+                  : "text-zinc-500",
               )}
             />
-          </Button>
+        </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal className="size-4" />
+              <Button variant="ghost" size="icon-sm" className="hover:bg-white/[0.08]">
+                <MoreHorizontal className="size-4 text-zinc-400" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
@@ -698,7 +722,7 @@ function FileCard({
                     Restore
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    className="cursor-pointer text-destructive focus:text-destructive"
+                    className="cursor-pointer text-red-400 focus:text-red-400"
                     onClick={onDeleteForever}
                   >
                     <Trash2 className="mr-2 size-4" />
@@ -707,7 +731,7 @@ function FileCard({
                 </>
               ) : (
                 <DropdownMenuItem
-                  className="cursor-pointer text-destructive focus:text-destructive"
+                  className="cursor-pointer text-red-400 focus:text-red-400"
                   onClick={onTrash}
                 >
                   <Trash2 className="mr-2 size-4" />
