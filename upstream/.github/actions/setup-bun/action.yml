@@ -1,0 +1,36 @@
+name: Setup Bun workspace
+
+description: Check out-independent Bun setup, cache, optional LFS pull, and install.
+
+inputs:
+  install-args:
+    description: Arguments passed to bun install.
+    required: false
+    default: --frozen-lockfile
+  lfs:
+    description: Pull Git LFS files before installing dependencies.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Pull LFS files
+      if: inputs.lfs == 'true'
+      shell: bash
+      run: |
+        git lfs install --force
+        git lfs pull
+        head -c 4 tests/fixtures/material3.fig | xxd
+
+    - uses: oven-sh/setup-bun@v2
+
+    - uses: actions/cache@v6
+      with:
+        path: ~/.bun/install/cache
+        key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+        restore-keys: bun-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: bun install ${{ inputs.install-args }}

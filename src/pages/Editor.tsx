@@ -25,8 +25,11 @@ import {
 } from "@/lib/framePresets";
 import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
+import { docToJsx } from "@/lib/designToJsx";
+import { analyzeTokens, formatTokensReport } from "@/lib/designTokens";
 import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
 import { LibraryPanel } from "@/components/LibraryPanel";
+import { AiPanel } from "@/components/AiPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -64,6 +67,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  Code2,
   ArrowLeft,
   ArrowDown,
   ArrowUp,
@@ -1009,6 +1013,7 @@ export default function Editor() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [publishTags, setPublishTags] = useState("");
   const [showRulers, setShowRulers] = useState(false);
@@ -3654,12 +3659,47 @@ export default function Editor() {
             >
               <Frame className="mr-2 size-4" /> Node document (.json)
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const { code } = docToJsx(doc, { format: "tailwind" });
+                const blob = new Blob([code], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${fileRow?.name ?? "design"}.tsx`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setExportOpen(false);
+              }}
+            >
+              <Code2 className="mr-2 size-4" /> React + Tailwind (JSX)
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const report = formatTokensReport(analyzeTokens(doc));
+                const blob = new Blob([report], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${fileRow?.name ?? "design"}-tokens.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setExportOpen(false);
+              }}
+            >
+              <Palette className="mr-2 size-4" /> Design tokens report
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Asset library */}
       <LibraryPanel open={libraryOpen} onOpenChange={setLibraryOpen} />
+
+      {/* AI assistant (Cmd+J) */}
+      <AiPanel open={aiOpen} onOpenChange={setAiOpen} />
 
       {/* Share dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
