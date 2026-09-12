@@ -2705,6 +2705,15 @@ export default function Editor() {
               reader.readAsDataURL(file);
             }}
           >
+            {/* Floating AI assistant button (right edge of canvas) */}
+            <button
+              className="group absolute right-4 top-1/2 z-10 flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-2xl border border-white/10 bg-[#131318]/90 p-2.5 text-zinc-400 shadow-xl shadow-black/40 backdrop-blur transition-colors hover:border-violet-400/50 hover:text-violet-300"
+              title="AI assistant (Cmd+J)"
+              onClick={() => setAiOpen(true)}
+            >
+              <Sparkles className="size-5" />
+              <span className="[writing-mode:vertical-rl] text-[10px] font-medium uppercase tracking-widest">AI</span>
+            </button>
             <canvas
               ref={canvasRef}
               className="absolute inset-0 h-full w-full touch-none select-none"
