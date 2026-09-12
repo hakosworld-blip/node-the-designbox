@@ -1046,9 +1046,6 @@ export default function Editor() {
       const hy = cy * zoom + panY + offY;
       if (Math.abs(sx - hx) <= 8 && Math.abs(sy - hy) <= 8) return "rotate";
     }
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
     const b = nodeBounds(node);
     const xs = [b.x, b.x + b.w / 2, b.x + b.w];
     const ys = [b.y, b.y + b.h / 2, b.y + b.h];
@@ -2780,8 +2777,293 @@ export default function Editor() {
                           </span>
                         </div>
                       </div>
+
+                      {/* Gradient fill (Figma-style linear gradient paint) */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          className={cn(
+                            "flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/70 px-2 text-[10px] font-semibold uppercase text-muted-foreground transition-colors",
+                            selectedNode.gradient
+                              ? "border-violet-400/60 bg-violet-500/10 text-foreground"
+                              : "hover:text-foreground",
+                          )}
+                          title="Toggle gradient fill"
+                          onClick={() =>
+                            updateSelected({
+                              gradient: selectedNode.gradient
+                                ? null
+                                : {
+                                    from: selectedNode.fill ?? "#8b5cf6",
+                                    to: "#22d3ee",
+                                    angle: 90,
+                                  },
+                            })
+                          }
+                        >
+                          <Palette className="size-3.5" />
+                          Grad
+                        </button>
+                        {selectedNode.gradient && (
+                          <>
+                            <input
+                              type="color"
+                              className="size-6 cursor-pointer rounded border border-border/70 bg-transparent"
+                              value={selectedNode.gradient.from}
+                              title="Gradient start"
+                              onChange={(e) => {
+                                const g = selectedNode.gradient;
+                                if (g)
+                                  updateSelected({
+                                    gradient: { ...g, from: e.target.value },
+                                  });
+                              }}
+                            />
+                            <input
+                              type="color"
+                              className="size-6 cursor-pointer rounded border border-border/70 bg-transparent"
+                              value={selectedNode.gradient.to}
+                              title="Gradient end"
+                              onChange={(e) => {
+                                const g = selectedNode.gradient;
+                                if (g)
+                                  updateSelected({
+                                    gradient: { ...g, to: e.target.value },
+                                  });
+                              }}
+                            />
+                            <NumField
+                              label="∠"
+                              value={selectedNode.gradient.angle}
+                              min={0}
+                              max={360}
+                              onChange={(v) => {
+                                const g = selectedNode.gradient;
+                                if (g)
+                                  updateSelected({
+                                    gradient: { ...g, angle: v },
+                                  });
+                              }}
+                            />
+                          </>
+                        )}
+                      </div>
+
+                      {/* Blend mode (canvas composite operations) */}
+                      <select
+                        className="h-8 w-full rounded-md border border-border/70 bg-background/60 px-2 text-xs capitalize"
+                        value={selectedNode.blend ?? "normal"}
+                        onChange={(e) => updateSelected({ blend: e.target.value })}
+                      >
+                        {BLEND_MODES.map((b) => (
+                          <option key={b} value={b}>
+                            {b === "normal" ? "Normal" : b.replace(/-/g, " ")}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Dashed stroke + layer blur */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <NumField
+                          label="Da"
+                          value={selectedNode.dash ?? 0}
+                          min={0}
+                          step={2}
+                          onChange={(v) => updateSelected({ dash: Math.max(0, v) })}
+                        />
+                        <NumField
+                          label="Bl"
+                          value={selectedNode.blur ?? 0}
+                          min={0}
+                          max={40}
+                          onChange={(v) => updateSelected({ blur: Math.max(0, v) })}
+                        />
+                      </div>
+
+                      {/* Mirror the selection (Figma flip) */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => store.getState().flipNodes(selectedIds, "h")}
+                        >
+                          <FlipHorizontal2 className="mr-1 size-3.5" /> Flip H
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => store.getState().flipNodes(selectedIds, "v")}
+                        >
+                          <FlipVertical2 className="mr-1 size-3.5" /> Flip V
+                        </Button>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Copy / paste paint + text style (Option-Cmd-C / Option-Cmd-V) */}
+                  <div>
+                    <SectionLabel>Style</SectionLabel>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => store.getState().copyStyle(selectedNode.id)}
+                      >
+                        <Clipboard className="mr-1 size-3.5" /> Copy
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => store.getState().pasteStyle(selectedIds)}
+                      >
+                        <ClipboardPaste className="mr-1 size-3.5" /> Paste
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Auto layout: frames re-flow their children (Figma-style) */}
+                  {selectedNode.type === "frame" && (
+                    <div>
+                      <SectionLabel>Auto layout</SectionLabel>
+                      {selectedNode.layout ? (
+                        <div className="mt-2 space-y-2">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <Button
+                              variant={
+                                selectedNode.layout.mode === "row"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                              size="sm"
+                              onClick={() => {
+                                const l = selectedNode.layout;
+                                if (l)
+                                  store
+                                    .getState()
+                                    .setFrameLayout(selectedNode.id, {
+                                      ...l,
+                                      mode: "row",
+                                    });
+                              }}
+                            >
+                              <Rows3 className="mr-1 size-3.5" /> Row
+                            </Button>
+                            <Button
+                              variant={
+                                selectedNode.layout.mode === "column"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                              size="sm"
+                              onClick={() => {
+                                const l = selectedNode.layout;
+                                if (l)
+                                  store
+                                    .getState()
+                                    .setFrameLayout(selectedNode.id, {
+                                      ...l,
+                                      mode: "column",
+                                    });
+                              }}
+                            >
+                              <Columns3 className="mr-1 size-3.5" /> Column
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <NumField
+                              label="Gap"
+                              value={selectedNode.layout.gap}
+                              min={0}
+                              onChange={(v) => {
+                                const l = selectedNode.layout;
+                                if (l)
+                                  store
+                                    .getState()
+                                    .setFrameLayout(selectedNode.id, {
+                                      ...l,
+                                      gap: Math.max(0, v),
+                                    });
+                              }}
+                            />
+                            <NumField
+                              label="Pad"
+                              value={selectedNode.layout.padding}
+                              min={0}
+                              onChange={(v) => {
+                                const l = selectedNode.layout;
+                                if (l)
+                                  store
+                                    .getState()
+                                    .setFrameLayout(selectedNode.id, {
+                                      ...l,
+                                      padding: Math.max(0, v),
+                                    });
+                              }}
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              store.getState().setFrameLayout(selectedNode.id, null)
+                            }
+                          >
+                            Remove auto layout
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() =>
+                            store.getState().setFrameLayout(selectedNode.id, {
+                              mode: "row",
+                              gap: 12,
+                              padding: 16,
+                            })
+                          }
+                        >
+                          <Grid3x3 className="mr-1.5 size-3.5" /> Add auto layout
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Component badges: instance detach + master indicator */}
+                  {selectedNode.type === "instance" &&
+                    selectedNode.componentId && (
+                      <div>
+                        <SectionLabel>Component</SectionLabel>
+                        <div className="mt-2 flex items-center gap-2 rounded-md border border-violet-400/40 bg-violet-500/10 p-2 text-[11px] text-violet-200">
+                          <Sparkles className="size-3.5 shrink-0" />
+                          <span className="flex-1">
+                            Instance of a component
+                          </span>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() =>
+                            store.getState().detachInstance([selectedNode.id])
+                          }
+                        >
+                          <SquareDashed className="mr-1.5 size-3.5" />
+                          Detach instance
+                        </Button>
+                      </div>
+                    )}
+                  {selectedNode.type !== "instance" &&
+                    selectedNode.componentId === selectedNode.id && (
+                      <div className="flex items-center gap-2 rounded-md border border-amber-400/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+                        <Sparkles className="size-3.5 shrink-0" />
+                        <span className="flex-1">
+                          Component master — this shape defines the reusable
+                          component
+                        </span>
+                      </div>
+                    )}
 
                   {selectedNode.type === "text" && (
                     <div>
