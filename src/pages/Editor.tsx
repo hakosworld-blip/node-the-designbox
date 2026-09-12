@@ -27,9 +27,11 @@ import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { docToJsx } from "@/lib/designToJsx";
 import { analyzeTokens, formatTokensReport } from "@/lib/designTokens";
+import { ScanSearch } from "lucide-react";
 import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
 import { LibraryPanel } from "@/components/LibraryPanel";
 import { AiPanel } from "@/components/AiPanel";
+import { LintPanel } from "@/components/LintPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -663,6 +665,7 @@ function CommandPalette({
     present: () => void;
     share: () => void;
     library: () => void;
+    lint: () => void;
   };
 }) {
   const selectedIds = useEditor((s) => s.selectedIds);
@@ -856,6 +859,9 @@ function CommandPalette({
           <CommandItem onSelect={() => run(actions.library)}>
             <SquareStack className="size-4" /> Library: premade assets…
           </CommandItem>
+          <CommandItem onSelect={() => run(actions.lint)}>
+            <ScanSearch className="size-4" /> Design lint: find issues…
+          </CommandItem>
           <CommandItem onSelect={() => run(actions.share)}>
             <Share2 className="size-4" /> Share…
           </CommandItem>
@@ -1014,6 +1020,7 @@ export default function Editor() {
   const [exportOpen, setExportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [lintOpen, setLintOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [publishTags, setPublishTags] = useState("");
   const [showRulers, setShowRulers] = useState(false);
@@ -2094,6 +2101,7 @@ export default function Editor() {
     present: () => setPresenting(true),
     share: () => setShareOpen(true),
     library: () => setLibraryOpen(true),
+    lint: () => setLintOpen(true),
   };
 
   const fitView = () => {
@@ -3700,6 +3708,7 @@ export default function Editor() {
 
       {/* AI assistant (Cmd+J) */}
       <AiPanel open={aiOpen} onOpenChange={setAiOpen} />
+      <LintPanel open={lintOpen} onOpenChange={setLintOpen} />
 
       {/* Share dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
