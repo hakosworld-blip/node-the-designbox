@@ -30,7 +30,8 @@ export type Tool =
   | "polygon"
   | "text"
   | "image"
-  | "comment";
+  | "comment"
+  | "scale";
 
 interface EditorState {
   doc: DesignDoc;
@@ -92,7 +93,40 @@ interface EditorState {
     ids: string[],
     op: "union" | "subtract" | "intersect",
   ) => void;
+  // ----- Figma-style paint / component extras -----
+  /** Copy the paint + text style of the first selected node (⌥⌘C). */
+  copyStyle: (id: string) => void;
+  /** Apply the stored style to every selected node (⌥⌘V). */
+  pasteStyle: (ids: string[]) => void;
+  hasStyleClipboard: () => boolean;
+  /** Turn an instance back into a regular, freely editable shape. */
+  detachInstance: (ids: string[]) => void;
+  /** Toggle / configure auto layout on a frame (null = off). */
+  setFrameLayout: (
+    id: string,
+    layout: { mode: "row" | "column"; gap: number; padding: number } | null,
+  ) => void;
 }
+
+/** The subset of node properties transferred by copy/paste style. */
+export type StyleProps = Pick<
+  DesignNode,
+  | "fill"
+  | "stroke"
+  | "strokeWidth"
+  | "radius"
+  | "opacity"
+  | "color"
+  | "fontSize"
+  | "fontWeight"
+  | "align"
+  | "gradient"
+  | "blend"
+  | "dash"
+  | "shadowBlur"
+  | "shadowColor"
+  | "blur"
+>;
 
 /**
  * Write-through helper: apply a mutation, then re-run any frame auto layouts.
@@ -105,6 +139,8 @@ function withLayout(doc: DesignDoc): DesignDoc {
 /** Clipboard lives outside React/store state so it never lands in history. */
 let clipboardNodes: DesignNode[] = [];
 let clipboardOrigin: { x: number; y: number } = { x: 0, y: 0 };
+/** Paint-style clipboard (Figma's copy/paste style). */
+let styleClipboard: StyleProps | null = null;
 
 function cloneDoc(doc: DesignDoc): DesignDoc {
   return JSON.parse(JSON.stringify(doc)) as DesignDoc;
@@ -773,6 +809,89 @@ export const useEditor = create<EditorState>((set, get) => ({
             flipY: !n.flipY,
           };
         }),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  // ----- Figma-style paint / component extras -----
+
+  copyStyle: (id) => {
+    const { doc } = get();
+    const node = activePage(doc).nodes.find((n) => n.id === id);
+    if (!node) return;
+    styleClipboard = {
+      fill: node.fill,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+      radius: node.radius,
+      opacity: node.opacity,
+      color: node.color,
+      fontSize: node.fontSize,
+      fontWeight: node.fontWeight,
+      align: node.align,
+      gradient: node.gradient ? { ...node.gradient } : null,
+      blend: node.blend,
+      dash: node.dash,
+      shadowBlur: node.shadowBlur,
+      shadowColor: node.shadowColor,
+      blur: node.blur,
+    };
+  },
+
+  pasteStyle: (ids) => {
+    if (!styleClipboard || ids.length === 0) return;
+    const { doc, past } = get();
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) => (ids.includes(n.id) ? { ...n, ...styleClipboard! } : n)),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  hasStyleClipboard: () => styleClipboard !== null,
+
+  detachInstance: (ids) => {
+    const { doc, past } = get();
+    const page = activePage(doc);
+    const instances = page.nodes.filter(
+      (n) => ids.includes(n.id) && n.type === "instance" && n.componentId,
+    );
+    if (instances.length === 0) return;
+    const allNodes = doc.pages.flatMap((p) => p.nodes);
+    set({
+      doc: mapNodes(doc, (nodes) =>
+        nodes.map((n) => {
+          const inst = instances.find((x) => x.id === n.id);
+          if (!inst) return n;
+          const master = allNodes.find((m) => m.id === inst.componentId);
+          return {
+            ...n,
+            type: master?.type ?? "rect",
+            name: n.name.replace(/ instance$/, ""),
+          };
+        }),
+      ),
+      past: [...past, cloneDoc(doc)],
+      future: [],
+      dirty: true,
+    });
+  },
+
+  setFrameLayout: (id, layout) => {
+    const { doc, past } = get();
+    set({
+      doc: withLayout(
+        mapNodes(doc, (nodes) =>
+          nodes.map((n) =>
+            n.id === id && n.type === "frame" ? { ...n, layout } : n,
+          ),
+        ),
       ),
       past: [...past, cloneDoc(doc)],
       future: [],

@@ -252,6 +252,15 @@ type Gesture =
       startAngle: number;
       startRotation: number;
       pushed: boolean;
+    }
+  | {
+      /** Scale tool (K): proportionally scale selection from its top-left. */
+      kind: "scale";
+      start: Bounds;
+      startX: number;
+      startY: number;
+      ids: string[];
+      pushed: boolean;
     };
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
@@ -461,6 +470,7 @@ function CanvasContextMenu({
 }
 
 /* ---------- Figma-style command palette (⌘K) ---------- */
+// Rendered at the end of the Editor page; ⌘K toggles it.
 
 function CommandPalette({
   open,
@@ -813,6 +823,7 @@ export default function Editor() {
   const [outlineMode, setOutlineMode] = useState(false);
   const [marquee, setMarquee] = useState<Bounds | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [renamingPage, setRenamingPage] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -1122,6 +1133,30 @@ export default function Editor() {
       }
     }
 
+    if (tool === "scale") {
+      const hit = hitTest(state.doc, page.x, page.y);
+      const ids = hit && !hit.locked ? [hit.id] : selectedIds;
+      if (ids.length > 0) {
+        const nodes = activePage(state.doc).nodes.filter((n) =>
+          ids.includes(n.id),
+        );
+        const b = unionBounds(nodes);
+        if (b) {
+          gestureRef.current = {
+            kind: "scale",
+            start: b,
+            startX: page.x,
+            startY: page.y,
+            ids,
+            pushed: false,
+          };
+          return;
+        }
+      }
+      // Nothing to scale — fall back to select behavior.
+      state.setTool("select");
+    }
+
     if (tool === "select") {
       const hit = hitTest(state.doc, page.x, page.y);
       if (hit && !hit.locked) {
@@ -1354,6 +1389,39 @@ export default function Editor() {
       return;
     }
 
+    if (g.kind === "scale") {
+      if (!g.pushed) {
+        state.pushHistory();
+        g.pushed = true;
+      }
+      const kx =
+        Math.abs(g.start.w) < 1e-3
+          ? 1
+          : Math.max(0.05, (g.start.w + (page.x - g.startX)) / g.start.w);
+      const ky =
+        Math.abs(g.start.h) < 1e-3
+          ? 1
+          : Math.max(0.05, (g.start.h + (page.y - g.startY)) / g.start.h);
+      const k = e.shiftKey ? Math.min(kx, ky) : Math.hypot(kx, ky) / Math.SQRT2;
+      const pageData = activePage(state.doc);
+      for (const id of g.ids) {
+        const n = pageData.nodes.find((x) => x.id === id);
+        if (!n) continue;
+        state.updateNodesLive([id], {
+          x: g.start.x + (n.x - g.start.x) * k,
+          y: g.start.y + (n.y - g.start.y) * k,
+          w: Math.max(2, n.w * k),
+          h:
+            n.type === "line" || n.type === "arrow"
+              ? n.h
+              : Math.max(2, n.h * k),
+          fontSize:
+            n.fontSize !== undefined ? Math.max(4, Math.round(n.fontSize * k)) : undefined,
+        });
+      }
+      return;
+    }
+
     if (g.kind === "draw") {
       const w = page.x - g.originX;
       const h = page.y - g.originY;
@@ -1417,6 +1485,19 @@ export default function Editor() {
         return;
       const state = store.getState();
       const mod = e.metaKey || e.ctrlKey;
+
+      // Figma-style paint style clipboard (⌥⌘C / ⌥⌘V)
+      if (mod && e.altKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        if (state.selectedIds.length > 0)
+          state.copyStyle(state.selectedIds[0]);
+        return;
+      }
+      if (mod && e.altKey && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        state.pasteStyle(state.selectedIds);
+        return;
+      }
 
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -1517,11 +1598,26 @@ export default function Editor() {
         return;
       }
       if (e.key === "Escape") {
+        // Figma behavior: Escape walks the selection up to the parent group
+        // before clearing it entirely.
+        const page = activePage(state.doc);
+        const parentIds: string[] = [];
+        for (const id of state.selectedIds) {
+          const g = page.nodes.find(
+            (n) => n.type === "group" && (n.children ?? []).includes(id),
+          );
+          if (g) parentIds.push(g.id);
+        }
+        if (parentIds.length > 0) {
+          state.select(parentIds);
+          return;
+        }
         state.setTool("select");
         state.select([]);
         setPresenting(false);
         setDraftComment(null);
         setContextMenu(null);
+        setRenamingPage(null);
         return;
       }
       // Zoom to selection (Shift+1): fit the current selection.
@@ -1558,6 +1654,22 @@ export default function Editor() {
           state.setViewport(t.zoom, t.panX, t.panY);
         }
       }
+      // Figma-style opacity shortcuts: type 0–9 to set selection opacity.
+      if (
+        !mod &&
+        !e.shiftKey &&
+        /^[0-9]$/.test(e.key) &&
+        state.selectedIds.length > 0
+      ) {
+        e.preventDefault();
+        const digits = e.key === "0" ? "00" : e.key;
+        state.pushHistory();
+        state.updateNodesLive(state.selectedIds, {
+          opacity: Math.min(100, parseInt(digits, 10)) / 100,
+        });
+        return;
+      }
+
       const key = e.key.toLowerCase();
       const toolMap: Record<string, Tool> = {
         v: "select",
@@ -1571,6 +1683,7 @@ export default function Editor() {
         t: "text",
         i: "image",
         c: "comment",
+        k: "scale",
       };
       if (toolMap[key]) state.setTool(toolMap[key]);
       if (key === "0") state.setViewport(1, state.panX, state.panY);
@@ -1659,6 +1772,16 @@ export default function Editor() {
     } catch {
       /* clipboard unavailable */
     }
+  };
+
+  const paletteActions = {
+    exportPng: () => exportPng(doc, fileRow?.name ?? "design"),
+    exportCss: () => exportCss(doc, fileRow?.name ?? "design"),
+    exportJson: () => downloadJson(doc, fileRow?.name ?? "design"),
+    saveVersion: () =>
+      snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" }),
+    present: () => setPresenting(true),
+    share: () => setShareOpen(true),
   };
 
   const fitView = () => {
