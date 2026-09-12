@@ -367,7 +367,14 @@ const icon = (
   name: `${name} icon`,
   category: "Icons",
   keywords: ["icon", ...kw],
-  build: () => parts.map((p) => ({ ...p, name: p.name === "Node" ? name : p.name })),
+  // Regenerate ids on every build: the parts array is shared module state,
+  // and inserting the same icon twice must never collide ids on canvas.
+  build: () =>
+    parts.map((p) => ({
+      ...p,
+      id: uid(p.type[0]),
+      name: p.name === "Node" ? name : p.name,
+    })),
 });
 
 const icons: LibraryItem[] = [
