@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, Settings2, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Msg {
   role: "user" | "assistant";
@@ -26,6 +27,14 @@ interface Msg {
 
 const KEY_STORE = "node.ai.key";
 const MODEL_STORE = "node.ai.model";
+const PROVIDER_STORE = "node.ai.provider";
+
+const PROVIDERS = [
+  { id: "groq", label: "Groq", keyHint: "gsk_…", model: "llama-3.3-70b-versatile" },
+  { id: "openrouter", label: "OpenRouter", keyHint: "sk-or-…", model: "anthropic/claude-3.5-sonnet" },
+  { id: "openai", label: "OpenAI", keyHint: "sk-…", model: "gpt-4o-mini" },
+  { id: "anthropic", label: "Anthropic", keyHint: "sk-ant-…", model: "claude-3-5-sonnet" },
+] as const;
 
 const QUICK_PROMPTS = [
   "Create a login card with email and password fields and a violet button",
@@ -68,6 +77,9 @@ export function AiPanel({
   );
   const [model, setModel] = useState(
     () => localStorage.getItem(MODEL_STORE) ?? "",
+  );
+  const [provider, setProvider] = useState(
+    () => localStorage.getItem(PROVIDER_STORE) ?? "groq",
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +125,7 @@ export function AiPanel({
           .map((m) => ({ role: m.role, content: m.content })),
         apiKey: apiKey.trim() || undefined,
         model: model.trim() || undefined,
+        provider: provider || undefined,
         context: docContext(),
       });
       const plan = parsePlan(content);
@@ -135,6 +148,7 @@ export function AiPanel({
   const saveSettings = () => {
     localStorage.setItem(KEY_STORE, apiKey.trim());
     localStorage.setItem(MODEL_STORE, model.trim());
+    localStorage.setItem(PROVIDER_STORE, provider);
     setShowSettings(false);
   };
 
@@ -214,10 +228,26 @@ export function AiPanel({
         {/* Settings row */}
         {showSettings ? (
           <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
+            <div className="flex flex-wrap gap-1">
+              {PROVIDERS.map((p) => (
+                <button
+                  key={p.id}
+                  className={cn(
+                    "rounded-md border px-2 py-1 text-[11px] transition-colors",
+                    provider === p.id
+                      ? "border-violet-400/50 bg-violet-500/10 text-zinc-100"
+                      : "border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300",
+                  )}
+                  onClick={() => setProvider(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
             <Input
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="OpenRouter API key (sk-or-…)"
+              placeholder={`${PROVIDERS.find((p) => p.id === provider)?.label ?? "Provider"} API key (${PROVIDERS.find((p) => p.id === provider)?.keyHint ?? "key"})`}
               type="password"
               className="h-8 border-white/10 bg-white/[0.03] text-xs"
               autoFocus
@@ -225,7 +255,7 @@ export function AiPanel({
             <Input
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="Model (default: anthropic/claude-3.5-sonnet)"
+              placeholder={`Model (default: ${PROVIDERS.find((p) => p.id === provider)?.model ?? "auto"})`}
               className="h-8 border-white/10 bg-white/[0.03] text-xs"
             />
             <div className="flex justify-end gap-2">
@@ -247,7 +277,8 @@ export function AiPanel({
             </div>
             <p className="text-[10px] text-zinc-600">
               Stored only in this browser. Requests are proxied through the app
-              backend; the key is never persisted server-side.
+              backend; the key is never persisted server-side. A server-wide
+              GROQ_API_KEY can be set instead of a personal key.
             </p>
           </div>
         ) : (

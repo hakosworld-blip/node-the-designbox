@@ -4,8 +4,9 @@ import { v } from "convex/values";
 /**
  * AI assistant backend — modeled on OpenPencil's BYOK AI chat
  * (upstream/src/app/ai/providers): the user's own provider key is used
- * server-side and never stored. Supports OpenRouter (default), OpenAI,
- * and Anthropic-compatible endpoints.
+ * server-side and never stored. Default provider is Groq
+ * (https://api.groq.com/openai/v1 — OpenAI-compatible); OpenAI, OpenRouter,
+ * and Anthropic remain selectable for BYOK users.
  */
 
 const SYSTEM_PROMPT = `You are Node's design assistant, embedded in a browser-based vector design editor. You modify the user's design by returning JSON plans.
@@ -28,6 +29,13 @@ Rules:
 - To restyle existing nodes, use update with their id from the provided selection/document list.
 - Keep plans small: 1-15 ops. No comments, no trailing commas.`;
 
+const ENDPOINTS: Record<string, string> = {
+  groq: "https://api.groq.com/openai/v1/chat/completions",
+  openrouter: "https://openrouter.ai/api/v1/chat/completions",
+  openai: "https://api.openai.com/v1/chat/completions",
+  anthropic: "https://api.anthropic.com/v1/messages",
+};
+
 export const chat = action({
   args: {
     messages: v.array(
@@ -42,21 +50,25 @@ export const chat = action({
     context: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
-    const key = args.apiKey || process.env.OPENROUTER_API_KEY;
+    const provider = args.provider ?? "groq";
+    const key =
+      args.apiKey ||
+      (provider === "groq" ? process.env.GROQ_API_KEY : undefined) ||
+      (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined) ||
+      (provider === "openai" ? process.env.OPENAI_API_KEY : undefined);
     if (!key) {
       throw new Error(
-        "No AI key available. Add your OpenRouter API key in Settings, or set OPENROUTER_API_KEY.",
+        "No AI key available. Add your Groq API key (gsk_…) in the AI panel settings, or set GROQ_API_KEY.",
       );
     }
-    const provider = args.provider ?? "openrouter";
-    const model = args.model ?? "anthropic/claude-3.5-sonnet";
-
-    const endpoints: Record<string, string> = {
-      openrouter: "https://openrouter.ai/api/v1/chat/completions",
-      openai: "https://api.openai.com/v1/chat/completions",
-      anthropic: "https://api.anthropic.com/v1/messages",
-    };
-    const url = endpoints[provider] ?? endpoints.openrouter;
+    const model =
+      args.model ??
+      (provider === "groq"
+        ? "llama-3.3-70b-versatile"
+        : provider === "anthropic"
+          ? "claude-3-5-sonnet"
+          : "gpt-4o-mini");
+    const url = ENDPOINTS[provider] ?? ENDPOINTS.groq;
 
     const msgs = args.context
       ? [{ role: "user" as const, content: args.context }, ...args.messages]
@@ -71,12 +83,13 @@ export const chat = action({
         "content-type": "application/json",
       };
       body = {
-        model: model.includes("/") ? model.split("/")[1] : model,
+        model,
         max_tokens: 2048,
         system: SYSTEM_PROMPT,
         messages: msgs,
       };
     } else {
+      // Groq, OpenRouter, and OpenAI share the OpenAI chat-completions shape.
       headers = {
         Authorization: `Bearer ${key}`,
         "content-type": "application/json",
@@ -86,6 +99,9 @@ export const chat = action({
         messages: [{ role: "system", content: SYSTEM_PROMPT }, ...msgs],
         max_tokens: 2048,
         temperature: 0.4,
+        // Groq serves open models that occasionally wrap JSON in prose;
+        // response_format nudges them to raw JSON when supported.
+        ...(provider === "groq" ? { response_format: { type: "json_object" } } : {}),
       };
     }
 
