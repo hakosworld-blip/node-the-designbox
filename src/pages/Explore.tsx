@@ -99,7 +99,7 @@ export default function Explore() {
   }, [items, search, activeTag]);
 
   return (
-    <div className="min-h-screen bg-[#0b0b0e] text-zinc-100">
+    <div className="min-h-dvh bg-[#0b0b0e] text-zinc-100">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[#0b0b0e]/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">

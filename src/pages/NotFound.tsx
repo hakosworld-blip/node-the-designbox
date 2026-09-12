@@ -39,7 +39,7 @@ export default function NotFound() {
 
   return (
     <div
-      className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100"
+      className="relative flex min-h-dvh flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100"
       onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })}
     >
       {/* Canvas dot grid */}

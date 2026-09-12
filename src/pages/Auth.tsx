@@ -105,7 +105,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100">
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-[#0b0b0e] text-zinc-100">
       {/* Canvas backdrop with drifting collaborator cursors */}
       <div
         aria-hidden

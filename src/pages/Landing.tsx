@@ -96,7 +96,7 @@ export default function Landing() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen bg-[#0b0b0e] text-zinc-100"
+      className="min-h-dvh bg-[#0b0b0e] text-zinc-100"
     >
       {/* Nav */}
       <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b0b0e]/80 backdrop-blur-xl">

@@ -198,6 +198,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 const PANEL_SIZES_KEY = "node.editor.dock.v1";
 
 function readDockState(): { left: boolean; right: boolean } {
+  // Mobile: docks start closed — the canvas is the product on a phone.
+  if (typeof window !== "undefined" && window.innerWidth < 768) {
+    return { left: false, right: false };
+  }
   try {
     const raw = localStorage.getItem(PANEL_SIZES_KEY);
     const m = raw ? JSON.parse(raw) : {};
@@ -216,7 +220,8 @@ function dockDefaultSize(side: "left" | "right"): number {
   } catch {
     /* storage unavailable */
   }
-  return side === "left" ? 17 : 21;
+  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+  return side === "left" ? (mobile ? 26 : 17) : mobile ? 30 : 21;
 }
 
 /** Slim draggable divider between dock groups. */
@@ -1081,6 +1086,17 @@ export default function Editor() {
   const lastCursorSentRef = useRef<number>(0);
   /** Space held → temporary hand/pan mode (Figma convention). */
   const spaceRef = useRef(false);
+  /** Two-finger pinch-zoom / pan state (mobile). */
+  const pinchRef = useRef<{
+    dist: number;
+    zoom: number;
+    centerX: number;
+    centerY: number;
+    panX: number;
+    panY: number;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
   /** Screen-space position for context menus and paste-at-cursor. */
   const [contextMenu, setContextMenu] = useState<{
     sx: number;
@@ -1798,6 +1814,56 @@ export default function Editor() {
     }
   };
 
+  /* ----- Mobile touch: two-finger pinch zoom + pan ----- */
+  const getTouchDist = (touches: React.TouchList) => {
+    const a = touches[0];
+    const b = touches[1];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  };
+
+  const onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 2) {
+      // Cancel any in-progress single-finger gesture; pinch takes over.
+      gestureRef.current = null;
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      const pt = screenToPage({ zoom, panX, panY }, cx, cy);
+      pinchRef.current = {
+        dist: getTouchDist(e.touches),
+        zoom,
+        centerX: cx,
+        centerY: cy,
+        panX,
+        panY,
+        pageX: pt.x,
+        pageY: pt.y,
+      };
+    } else if (e.touches.length > 2) {
+      pinchRef.current = null;
+    }
+  };
+
+  const onTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      const p = pinchRef.current;
+      // Zoom anchored at the gesture's original canvas point.
+      const factor = getTouchDist(e.touches) / Math.max(1, p.dist);
+      const newZoom = Math.min(8, Math.max(0.05, p.zoom * factor));
+      const px = cx - ((p.centerX - p.panX) * newZoom) / p.zoom;
+      const py = cy - ((p.centerY - p.panY) * newZoom) / p.zoom;
+      store.getState().setViewport(newZoom, px, py);
+    }
+  };
+
+  const onTouchEnd = () => {
+    pinchRef.current = null;
+  };
+
   /* ----- Keyboard shortcuts ----- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2164,7 +2230,7 @@ export default function Editor() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
         {/* ===== Top bar ===== */}
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 bg-card/70 px-3">
           <Button
@@ -2184,9 +2250,9 @@ export default function Editor() {
               if (fileRow && name.trim() && name !== fileRow.name)
                 renameFile({ id: fileId as Id<"files">, name });
             }}
-            className="h-8 w-52 border-transparent bg-transparent px-2 text-sm font-medium hover:border-border/70"
+            className="h-8 w-28 border-transparent bg-transparent px-2 text-sm font-medium hover:border-border/70 sm:w-52"
           />
-          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
             <span
               className={cn(
                 "size-1.5 rounded-full",
@@ -2361,7 +2427,7 @@ export default function Editor() {
               onClick={() => setLibraryOpen(true)}
             >
               <SquareStack className="size-4" />
-              <span className="hidden md:inline">Library</span>
+              <span className="hidden lg:inline">Library</span>
             </Button>
 
             <Button
@@ -2371,7 +2437,7 @@ export default function Editor() {
               onClick={() => setExportOpen(true)}
             >
               <Download className="size-4" />
-              <span className="hidden md:inline">Export</span>
+              <span className="hidden lg:inline">Export</span>
             </Button>
 
             <Button
@@ -2381,7 +2447,7 @@ export default function Editor() {
               onClick={() => setPresenting(true)}
             >
               <Eye className="size-4" />
-              <span className="hidden md:inline">Present</span>
+              <span className="hidden lg:inline">Present</span>
             </Button>
 
             <Button
@@ -2396,9 +2462,9 @@ export default function Editor() {
         </header>
 
         {/* ===== Body ===== */}
-        <div className="flex min-h-0 flex-1">
-          {/* Tool rail */}
-          <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border/60 bg-card/40 py-3">
+        <div className="relative flex min-h-0 flex-1">
+          {/* Tool rail: bottom horizontal strip on mobile, left rail on md+ */}
+          <div className="absolute inset-x-0 bottom-14 z-20 flex items-center justify-center gap-0.5 border-y border-border/60 bg-card/90 px-1 py-1 backdrop-blur md:static md:flex md:w-12 md:flex-col md:gap-1 md:border-y-0 md:border-r md:px-0 md:py-3 md:backdrop-blur-0">
             {(
               [
                 { t: "select", icon: MousePointer2, label: "Move (V)" },
@@ -2771,6 +2837,10 @@ export default function Editor() {
               onPointerLeave={() => store.getState().setHover(null)}
               onDoubleClick={onDoubleClick}
               onWheel={onWheel}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchEnd}
             />
 
             {/* Text editor overlay */}
@@ -3688,7 +3758,7 @@ export default function Editor() {
 
       {/* Export dialog */}
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Export assets</DialogTitle>
             <DialogDescription>
@@ -3769,7 +3839,7 @@ export default function Editor() {
 
       {/* Share dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Share “{fileRow?.name}”</DialogTitle>
             <DialogDescription>

@@ -91,7 +91,7 @@ export function LintPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[70vh] flex-col gap-0 overflow-hidden bg-[#131318] p-0 text-zinc-100 sm:max-w-xl">
+      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#131318] p-0 text-zinc-100 sm:h-[70vh] sm:max-w-xl sm:rounded-lg sm:border">
         <DialogHeader className="border-b border-white/[0.06] px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-base">
             <ScanSearch className="size-4 text-violet-400" />

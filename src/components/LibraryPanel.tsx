@@ -102,7 +102,7 @@ export function LibraryPanel({ open, onOpenChange }: LibraryPanelProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[80vh] flex-col sm:max-w-3xl">
+      <DialogContent className="flex h-[100dvh] w-full max-w-full flex-col gap-0 rounded-none border-0 sm:h-[80vh] sm:max-w-3xl sm:rounded-lg sm:border">
         <DialogHeader>
           <DialogTitle>Library</DialogTitle>
           <DialogDescription>

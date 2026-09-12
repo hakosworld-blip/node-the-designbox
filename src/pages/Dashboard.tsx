@@ -203,7 +203,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <main className="relative min-h-screen bg-[#0b0b0e] text-zinc-100">
+    <main className="relative min-h-dvh bg-[#0b0b0e] text-zinc-100">
       {/* Canvas dot grid backdrop */}
       <div
         aria-hidden
@@ -465,7 +465,7 @@ export default function Dashboard() {
 
       {/* New file dialog */}
       <Dialog open={newDialog === "file"} onOpenChange={() => setNewDialog(null)}>
-        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New design file</DialogTitle>
             <DialogDescription className="text-zinc-500">
@@ -525,7 +525,7 @@ export default function Dashboard() {
         open={newDialog === "project"}
         onOpenChange={() => setNewDialog(null)}
       >
-        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New project</DialogTitle>
             <DialogDescription className="text-zinc-500">
@@ -557,7 +557,7 @@ export default function Dashboard() {
         open={publishFor !== null}
         onOpenChange={(open) => !open && setPublishFor(null)}
       >
-        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Publish to Explore</DialogTitle>
             <DialogDescription className="text-zinc-500">
@@ -604,7 +604,7 @@ export default function Dashboard() {
 
       {/* Profile rename dialog */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-1.5rem)] overflow-y-auto border-white/10 bg-[#131318] text-zinc-100 sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Display name</DialogTitle>
             <DialogDescription className="text-zinc-500">
