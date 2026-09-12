@@ -26,6 +26,7 @@ import {
 import { renderDoc, BLEND_MODES, type SnapGuide } from "@/lib/render";
 import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export";
 import { loadFileLocal, saveFileLocal } from "@/lib/localStore";
+import { LibraryPanel } from "@/components/LibraryPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -657,6 +658,7 @@ function CommandPalette({
     saveVersion: () => void;
     present: () => void;
     share: () => void;
+    library: () => void;
   };
 }) {
   const selectedIds = useEditor((s) => s.selectedIds);
@@ -847,6 +849,9 @@ function CommandPalette({
           <CommandItem onSelect={() => run(actions.present)}>
             <Eye className="size-4" /> Present
           </CommandItem>
+          <CommandItem onSelect={() => run(actions.library)}>
+            <SquareStack className="size-4" /> Library: premade assets…
+          </CommandItem>
           <CommandItem onSelect={() => run(actions.share)}>
             <Share2 className="size-4" /> Share…
           </CommandItem>
@@ -984,6 +989,7 @@ export default function Editor() {
   const [name, setName] = useState("");
   const [presenting, setPresenting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -2065,6 +2071,7 @@ export default function Editor() {
       snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" }),
     present: () => setPresenting(true),
     share: () => setShareOpen(true),
+    library: () => setLibraryOpen(true),
   };
 
   const fitView = () => {
@@ -2285,6 +2292,16 @@ export default function Editor() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={() => setLibraryOpen(true)}
+            >
+              <SquareStack className="size-4" />
+              <span className="hidden md:inline">Library</span>
+            </Button>
 
             <Button
               variant="ghost"
@@ -2628,6 +2645,7 @@ export default function Editor() {
             <Panel id="dock-center" order={2} minSize={30} className="min-w-0">
               <div
                 ref={wrapRef}
+                data-canvas-center
                 className="relative h-full w-full"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -3622,6 +3640,9 @@ export default function Editor() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Asset library */}
+      <LibraryPanel open={libraryOpen} onOpenChange={setLibraryOpen} />
 
       {/* Share dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
