@@ -962,7 +962,7 @@ export default function Editor() {
 
   const updateDoc = useMutation(api.files.updateDoc);
   const renameFile = useMutation(api.files.rename);
-  const snapshotVersion = useMutation(api.files.snapshot);
+  const snapshotVersionRaw = useMutation(api.files.snapshot);
   const restoreVersion = useMutation(api.files.restoreVersion);
   const addComment = useMutation(api.comments.add);
   const resolveComment = useMutation(api.comments.resolve);
@@ -987,18 +987,21 @@ export default function Editor() {
   const store = useEditor;
 
   /**
-   * Manual version snapshot: push the live in-memory doc to the cloud FIRST,
-   * then snapshot. `files.snapshot` reads `file.doc` server-side, so calling
-   * it before the push would persist the pre-push doc — silently dropping
-   * edits made since the debounced autosave.
+   * Every manual "save version" entry point (⌘S, command palette, version
+   * history) flows through here. `files.snapshot` snapshots the server-side
+   * `file.doc`, which lags the live doc by up to the autosave debounce — so
+   * push the current in-memory doc to the cloud FIRST, then snapshot, to
+   * ensure the captured version includes edits made since the last autosave.
    */
-  const saveAndSnapshot = useCallback(() => {
-    const current = store.getState().doc;
-    saveFileLocal(fileId ?? "", name, current).catch(() => undefined);
-    updateDoc({ id: fileId as Id<"files">, doc: current })
-      .then(() => snapshotVersion({ id: fileId as Id<"files">, label: "Manual save" }))
-      .catch(() => undefined);
-  }, [fileId, name, snapshotVersion, store, updateDoc]);
+  const snapshotVersion = useCallback(
+    async (opts: Parameters<typeof snapshotVersionRaw>[0]) => {
+      await updateDoc({ id: fileId as Id<"files">, doc: store.getState().doc }).catch(
+        () => undefined,
+      );
+      return snapshotVersionRaw(opts);
+    },
+    [fileId, snapshotVersionRaw, store, updateDoc],
+  );
 
   const [name, setName] = useState("");
   const [presenting, setPresenting] = useState(false);
