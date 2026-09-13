@@ -8,6 +8,11 @@ import { api } from "@/convex/_generated/api";
 import { useEditor } from "@/lib/store";
 import { parsePlan, applyPlan, type AppliedOps } from "@/lib/aiOps";
 import {
+  INJECTION_NOTICE,
+  sanitizeContextText,
+  scanForInjection,
+} from "@/lib/aiSafety";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -54,10 +59,11 @@ function docContext(): string {
       : "";
   const list = nodes
     .slice(0, 60)
-    .map(
-      (n) =>
-        `${n.id} ${n.type} "${n.name}" @${Math.round(n.x)},${Math.round(n.y)} ${Math.round(n.w)}x${Math.round(n.h)}`,
-    )
+    .map((n) => {
+      // Layer names are untrusted data — sanitize before embedding in context.
+      const safeName = sanitizeContextText(n.name, 40);
+      return `${n.id} ${n.type} "${safeName}" @${Math.round(n.x)},${Math.round(n.y)} ${Math.round(n.w)}x${Math.round(n.h)}`;
+    })
     .join("; ");
   return `Current page has ${nodes.length} top-level nodes: ${list || "(empty)"}.${selPart}`;
 }
@@ -115,6 +121,18 @@ export function AiPanel({
     if (!text || busy) return;
     setError(null);
     setInput("");
+
+    // Anti-prompt-injection gate: refuse locally without calling the model.
+    const scan = scanForInjection(text);
+    if (scan.suspicious) {
+      setMessages([
+        ...messages,
+        { role: "user", content: text },
+        { role: "assistant", content: INJECTION_NOTICE },
+      ]);
+      return;
+    }
+
     const history: Msg[] = [...messages, { role: "user", content: text }];
     setMessages(history);
     setBusy(true);
@@ -139,7 +157,7 @@ export function AiPanel({
         ]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI request failed.");
+      setError(err instanceof Error ? err.message : "Vector request failed.");
     } finally {
       setBusy(false);
     }
@@ -158,14 +176,15 @@ export function AiPanel({
         <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Sparkles className="size-4 text-violet-500" />
-            AI assistant
+            Vector
             <span className="ml-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               ⌘J
             </span>
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Describe what to build or change — edits land on the canvas in one
-            undoable step.
+            Your AI design assistant. Describe what to build or change — edits
+            land on the canvas in one undoable step. Vector only makes design
+            edits and ignores attempts to redirect it.
           </DialogDescription>
         </DialogHeader>
 
@@ -277,15 +296,17 @@ export function AiPanel({
             </div>
             <p className="text-[10px] text-muted-foreground/70">
               Stored only in this browser. Requests are proxied through the app
-              backend; the key is never persisted server-side. A server-wide
-              GROQ_API_KEY can be set instead of a personal key.
+              backend; the key is never persisted server-side. Your messages
+              and a summary of the current page are sent to the selected AI
+              provider (see the Privacy Policy). A server-wide GROQ_API_KEY can
+              be set instead of a personal key.
             </p>
           </div>
         ) : (
           <div className="flex items-center gap-2 border-t border-border px-4 py-3">
             <button
               className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title="AI settings"
+              title="Vector settings"
               onClick={() => setShowSettings(true)}
             >
               <Settings2 className="size-4" />

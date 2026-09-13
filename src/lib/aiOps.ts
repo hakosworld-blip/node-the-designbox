@@ -102,11 +102,16 @@ export function validateOp(raw: unknown): AiOp | null {
   const op = o.op;
   if (op !== "create" && op !== "update" && op !== "delete") return null;
   const out: AiOp = { op };
-  if (typeof o.id === "string") out.id = o.id;
+  // Length caps: ids are short, names/text bounded — bounds the injection
+  // surface and prevents absurd payloads from reaching the canvas.
+  if (typeof o.id === "string") out.id = o.id.slice(0, 64);
   if (op !== "delete") {
     for (const key of FIELDS) {
       if (o[key] !== undefined && o[key] !== null) {
-        (out as unknown as Record<string, unknown>)[key] = o[key];
+        (out as unknown as Record<string, unknown>)[key] =
+          typeof o[key] === "string"
+            ? (o[key] as string).slice(0, key === "text" ? 400 : 120)
+            : o[key];
       }
     }
   }
@@ -129,7 +134,7 @@ export function parsePlan(raw: string | object): AiPlan | null {
   }
   if (!obj || typeof obj !== "object") return null;
   const o = obj as Record<string, unknown>;
-  const opsRaw = Array.isArray(o.ops) ? o.ops : [];
+  const opsRaw = Array.isArray(o.ops) ? o.ops.slice(0, 20) : [];
   const ops = opsRaw.map(validateOp).filter((x): x is AiOp => x !== null);
   return { ops, say: typeof o.say === "string" ? o.say : "" };
 }

@@ -9,7 +9,7 @@ import {
   Shapes,
   Users,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { NodeMark, NodeMarkTile } from "@/components/NodeLogo";
@@ -570,12 +570,26 @@ export default function Landing() {
             </span>
           </div>
           <p>Collaborative interface design for modern product teams.</p>
-          <button
-            className="transition-colors hover:text-white"
-            onClick={() => navigate("/explore")}
-          >
-            Explore the catalog
-          </button>
+          <nav className="flex items-center gap-5">
+            <Link
+              className="transition-colors hover:text-white"
+              to="/privacy"
+            >
+              Privacy
+            </Link>
+            <Link
+              className="transition-colors hover:text-white"
+              to="/terms"
+            >
+              Terms
+            </Link>
+            <button
+              className="transition-colors hover:text-white"
+              onClick={() => navigate("/explore")}
+            >
+              Explore the catalog
+            </button>
+          </nav>
         </div>
       </footer>
     </motion.div>
