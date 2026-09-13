@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   InputOTP,
@@ -11,7 +12,10 @@ import { NodeMarkTile } from "@/components/NodeLogo";
 import { motion } from "framer-motion";
 import { ArrowRight, Loader2, Mail, MousePointer2, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { api } from "@/convex/_generated/api";
+import { useMutation } from "convex/react";
+import { cn } from "@/lib/utils";
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -45,6 +49,17 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Legal consent gate: both email and guest sign-in are blocked until the
+  // user explicitly agrees to the Terms and Privacy Policy.
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState(false);
+  const ensureDisplayName = useMutation(api.profile.ensureDisplayName);
+
+  const requireConsent = () => {
+    if (agreed) return true;
+    setConsentError(true);
+    return false;
+  };
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -54,6 +69,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!requireConsent()) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -80,6 +96,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       const formData = new FormData(event.currentTarget);
       await signIn("email-otp", formData);
 
+      // First sign-up: derive a friendly display name from the email
+      // ("full.bear67@…" → "Full Bear"). No-op if already named or guest.
+      try {
+        await ensureDisplayName({});
+      } catch (nameError) {
+        console.error("Display name bootstrap failed:", nameError);
+      }
+
       navigate(redirect);
     } catch (error) {
       console.error("OTP verification error:", error);
@@ -90,6 +114,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   };
 
   const handleGuestLogin = async () => {
+    if (!requireConsent()) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -188,6 +213,49 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </div>
                 {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
+                {/* Legal consent gate */}
+                <label
+                  className={cn(
+                    "mt-5 flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 transition-colors",
+                    consentError && !agreed
+                      ? "border-red-500/60 bg-red-500/5"
+                      : "border-border hover:border-white/25",
+                  )}
+                >
+                  <Checkbox
+                    checked={agreed}
+                    onCheckedChange={(v) => {
+                      setAgreed(v === true);
+                      if (v === true) setConsentError(false);
+                    }}
+                    className="mt-0.5 border-white/25 data-[state=checked]:border-violet-500 data-[state=checked]:bg-violet-500"
+                  />
+                  <span className="text-xs leading-relaxed text-muted-foreground">
+                    I agree to the{" "}
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      className="font-medium text-violet-400 underline hover:text-violet-300"
+                    >
+                      Terms &amp; Conditions
+                    </Link>{" "}
+                    and{" "}
+                    <Link
+                      to="/privacy"
+                      target="_blank"
+                      className="font-medium text-violet-400 underline hover:text-violet-300"
+                    >
+                      Privacy Policy
+                    </Link>
+                    . You must agree before you can continue.
+                  </span>
+                </label>
+                {consentError && !agreed && (
+                  <p className="mt-2 text-xs text-red-400">
+                    Please agree to the Terms and Privacy Policy to continue.
+                  </p>
+                )}
+
                 <div className="mt-5">
                   <div className="relative">
                     <div className="absolute inset-0 flex items-center">
@@ -201,9 +269,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   <Button
                     type="button"
                     variant="outline"
-                    className="mt-4 w-full border-white/15 bg-transparent text-foreground hover:bg-white/5 hover:text-white"
+                    className="mt-4 w-full border-white/15 bg-transparent text-foreground hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={handleGuestLogin}
-                    disabled={isLoading}
+                    disabled={isLoading || !agreed}
                   >
                     <UserX className="mr-2 h-4 w-4" />
                     Continue as Guest

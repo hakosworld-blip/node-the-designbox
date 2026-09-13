@@ -19,15 +19,26 @@ export default function Terms() {
         editor, dashboard, Explore catalog, and the Vector AI assistant. By
         creating an account or using the Service, you agree to these Terms.
       </p>
+      <p>
+        Before you can create an account — by email or as a guest — the
+        Service asks you to actively confirm that you accept these Terms and
+        the Privacy Policy (an opt-in checkbox; the sign-in controls remain
+        unusable until you do). This confirmation is required for every
+        sign-in and constitutes your acceptance of these Terms.
+      </p>
 
       <h2>1. Eligibility and accounts</h2>
       <p>
         You must be at least 13 years old (16 in the EEA/UK) to use the
         Service. You may sign in with an email one-time code or use an
-        anonymous session. You are responsible for the accuracy of your
-        display name and for activity that happens under your session. Keep
-        your email account secure — access to your email is access to your
-        Node account.
+        anonymous session. When you first sign in with an email code, the
+        Service automatically suggests a display name derived from your
+        email address (for example, "full.bear67@…" becomes "Full Bear");
+        you can change this name at any time in the account menu, and an
+        existing name is never overwritten. You are responsible for the
+        accuracy of your display name and for activity that happens under
+        your session. Keep your email account secure — access to your email
+        is access to your Node account.
       </p>
 
       <h2>2. The Service</h2>

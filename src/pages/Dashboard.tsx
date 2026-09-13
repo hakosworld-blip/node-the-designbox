@@ -38,6 +38,7 @@ import { useTheme } from "@/lib/theme";import {
   FolderOpen,
   FolderPlus,
   Globe,
+  Layers,
   LayoutGrid,
   LogOut,
   Moon,
@@ -47,11 +48,14 @@ import { useTheme } from "@/lib/theme";import {
   PenLine,
   RotateCcw,
   Search,
+  Settings2,
   ShieldAlert,
   Smartphone,
+  Sparkles,
   Star,
   Sun,
   Trash2,
+  Zap,
 } from "lucide-react";
 
 type ViewTab = "recent" | "starred" | "trash";
@@ -130,6 +134,7 @@ export default function Dashboard() {
   const projects = useQuery(api.projects.list);
   const files = useQuery(api.files.recent);
   const folders = useQuery(api.projects.listFolders);
+  const fileCount = (files ?? []).filter((f) => !(f as FileRow).trashed).length;
 
   const createProject = useMutation(api.projects.create);
   const createFile = useMutation(api.files.create);
@@ -277,26 +282,32 @@ export default function Dashboard() {
 
   return (
     <main className="relative min-h-dvh bg-background text-foreground">
-      {/* Canvas dot grid backdrop */}
+      {/* Canvas dot grid backdrop — softer, editorial */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0"
         style={{
           backgroundImage:
             "radial-gradient(var(--canvas-dot) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
+          backgroundSize: "28px 28px",
+          maskImage:
+            "radial-gradient(ellipse 90% 70% at 50% 0%, black 40%, transparent 100%)",
         }}
       />
-      {/* Violet ambience */}
+      {/* Split ambience: violet up top, cyan whisper at the base */}
       <div
         aria-hidden
-        className="pointer-events-none fixed left-1/2 top-0 h-72 w-[50rem] -translate-x-1/2 rounded-full bg-violet-600/10 blur-[130px] dark:bg-violet-600/10"
+        className="pointer-events-none fixed left-1/2 top-0 h-80 w-[54rem] -translate-x-1/2 rounded-full bg-violet-600/[0.07] blur-[130px]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed -bottom-24 left-1/4 h-64 w-[36rem] rounded-full bg-cyan-500/[0.05] blur-[120px]"
       />
 
-      {/* Top bar */}
-      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-          <button className="flex items-center gap-2.5" onClick={() => navigate("/dashboard")}>
+      {/* Top bar — floating pill nav */}
+      <header className="sticky top-3 z-20 mx-auto w-full max-w-6xl px-4">
+        <div className="flex h-14 items-center justify-between rounded-2xl border border-border/80 bg-background/80 px-3 shadow-sm shadow-black/5 backdrop-blur-xl">
+          <button className="flex items-center gap-2.5 pl-1" onClick={() => navigate("/dashboard")}>
             <NodeMarkTile className="size-7 rounded-[8px]" />
             <span className="text-sm font-bold uppercase tracking-[0.22em]">Node</span>
           </button>
@@ -308,7 +319,7 @@ export default function Dashboard() {
               onClick={() => navigate("/explore")}
             >
               <Compass className="size-4" />
-              Explore
+              <span className="hidden sm:inline">Explore</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -316,10 +327,12 @@ export default function Dashboard() {
                   variant="ghost"
                   className="gap-2 px-2 hover:bg-accent"
                 >
-                  <span className="flex size-7 items-center justify-center rounded-full bg-violet-500 text-[11px] font-semibold text-white">
+                  <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white">
                     {(user?.name ?? "U").slice(0, 1).toUpperCase()}
                     </span>
-                  <span className="text-sm text-foreground">{user?.name ?? "Account"}</span>
+                  <span className="hidden max-w-24 truncate text-sm text-foreground sm:inline">
+                    {user?.name ?? "Account"}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -356,6 +369,21 @@ export default function Dashboard() {
                   Delete account…
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => navigate("/privacy")}
+                >
+                  <ShieldAlert className="mr-2 size-4" />
+                  Privacy
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => navigate("/terms")}
+                >
+                  <PenLine className="mr-2 size-4" />
+                  Terms
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                   <LogOut className="mr-2 size-4" />
                   Sign out
@@ -367,14 +395,75 @@ export default function Dashboard() {
       </header>
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-10">
-        {/* Heading */}
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium uppercase tracking-widest text-violet-500">
-            Workspace
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Your UI and UX projects
-          </h1>
+        {/* Greeting hero */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-violet-500">
+              <Sparkles className="size-3.5" />
+              Workspace
+            </p>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              Welcome back,
+              <span className="bg-gradient-to-r from-violet-500 to-cyan-400 bg-clip-text text-transparent">
+                {" "}
+                {user?.name?.split(" ")[0] ?? "designer"}
+              </span>
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {fileCount === 0
+                ? "Your canvas awaits — start something new."
+                : `${fileCount} design${fileCount === 1 ? "" : "s"} · ready when you are.`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-border bg-card/60 hover:bg-accent"
+              onClick={() => navigate("/explore")}
+            >
+              <Compass className="size-4 text-violet-500" />
+              Browse Explore
+            </Button>
+            <Button
+              className="gap-2 bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-md shadow-violet-600/25 hover:from-violet-500 hover:to-violet-400"
+              onClick={() => {
+                setNewName("");
+                setTemplate("mobile");
+                setNewDialog("file");
+              }}
+            >
+              <Zap className="size-4" />
+              New design
+            </Button>
+          </div>
+        </div>
+
+        {/* Quick-start template cards */}
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {([
+            { kind: "mobile" as const, icon: Smartphone, name: "Mobile app", blurb: "Phone screen with header, hero card, and buttons" },
+            { kind: "web" as const, icon: LayoutGrid, name: "Web dashboard", blurb: "Desktop frame with sidebar and metric cards" },
+            { kind: "blank" as const, icon: PenLine, name: "Blank canvas", blurb: "Start from a clean frame and build anything" },
+          ]).map(({ kind, icon: Icon, name, blurb }) => (
+            <button
+              key={kind}
+              className="group flex items-start gap-3 rounded-xl border border-border/80 bg-card/50 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-violet-500/50 hover:bg-accent/60 hover:shadow-md hover:shadow-violet-600/10"
+              onClick={() => {
+                setTemplate(kind);
+                setNewName(name);
+                setNewDialog("file");
+              }}
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500 transition-colors group-hover:bg-violet-500/20">
+                <Icon className="size-4" />
+              </span>
+              <span>
+                <span className="block text-sm font-medium text-foreground">{name}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{blurb}</span>
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* Projects & folders */}
@@ -566,22 +655,22 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Toolbar */}
+        {/* Toolbar — view tabs + search */}
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card/60 p-1">
+          <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/60 p-1">
             {tabs.map((t) => (
               <button
                 key={t.key}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-sm transition-colors",
+                  "rounded-lg px-3.5 py-1.5 text-sm transition-colors",
                   tab === t.key
-                    ? "bg-accent font-medium text-foreground"
+                    ? "bg-violet-500/15 font-medium text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => setTab(t.key)}
               >
                 {t.label}
-</button>
+              </button>
             ))}
           </div>
           <div className="flex items-center gap-2">
@@ -591,20 +680,9 @@ export default function Dashboard() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search files"
-                className="h-9 w-52 border-border bg-card/60 pl-8 placeholder:text-muted-foreground/70 focus-visible:ring-violet-500/40"
+                className="h-9 w-full border-border bg-card/60 pl-8 placeholder:text-muted-foreground/70 focus-visible:ring-violet-500/40 sm:w-56"
               />
             </div>
-            <Button
-              className="gap-2 bg-violet-600 text-white hover:bg-violet-500"
-              onClick={() => {
-                setNewName("");
-                setTemplate("mobile");
-                setNewDialog("file");
-              }}
-            >
-              <FilePlus2 className="size-4" />
-              New design
-            </Button>
           </div>
         </div>
 
@@ -623,13 +701,23 @@ export default function Dashboard() {
               ))}
             </div>
           ) : visibleFiles.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border py-16 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-dashed border-border/80 py-16 text-center">
+              <span className="mx-auto flex size-11 w-max items-center justify-center rounded-xl bg-violet-500/10 text-violet-500">
+                {tab === "trash" ? <Trash2 className="size-5" /> : tab === "starred" ? <Star className="size-5" /> : <FilePlus2 className="size-5" />}
+              </span>
+              <p className="mt-3 text-sm font-medium text-foreground">
                 {tab === "trash"
-                  ? "Trash is empty."
+                  ? "Trash is empty"
                   : tab === "starred"
-                    ? "No starred files yet. Star a design to pin it here."
-                    : "No files found. Create your first design."}
+                    ? "Nothing starred yet"
+                    : "No files found"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tab === "trash"
+                  ? "Deleted designs will appear here for recovery."
+                  : tab === "starred"
+                    ? "Star a design to pin it to this view."
+                    : "Create your first design — templates are one click away."}
               </p>
             </div>
           ) : (
@@ -664,38 +752,48 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Template shortcuts */}
+        {/* Template shortcuts (only when the workspace is truly empty) */}
         {tab === "recent" && fileList.filter((f) => !f.trashed).length === 0 && (
-          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card
-              className="group cursor-pointer border-border bg-card/50 p-5 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
-              onClick={() => {
-                setTemplate("mobile");
-                setNewName("Mobile app");
-                setNewDialog("file");
-              }}
-            >
-              <Smartphone className="size-5 text-violet-500" />
-              <p className="mt-3 text-sm font-medium text-foreground">Mobile app template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                A ready-made phone screen with a header, hero card, and buttons
-                you can restyle.
-              </p>
-            </Card>
-            <Card
-              className="group cursor-pointer border-border bg-card/50 p-5 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
-              onClick={() => {
-                setTemplate("web");
-                setNewName("Web dashboard");
-                setNewDialog("file");
-              }}
-            >
-              <LayoutGrid className="size-5 text-violet-500" />
-              <p className="mt-3 text-sm font-medium text-foreground">Web dashboard template</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                A desktop frame with sidebar navigation and metric cards.
-              </p>
-            </Card>
+          <div className="mt-8 rounded-2xl border border-border/80 bg-card/40 p-5">
+            <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Sparkles className="size-4 text-violet-500" />
+              Start from a template
+            </h3>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Card
+                className="group cursor-pointer border-border/80 bg-card/60 p-4 shadow-none transition-all hover:-translate-y-0.5 hover:border-violet-500/50 hover:bg-accent/60 hover:shadow-md hover:shadow-violet-600/10"
+                onClick={() => {
+                  setTemplate("mobile");
+                  setNewName("Mobile app");
+                  setNewDialog("file");
+                }}
+              >
+                <span className="flex size-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500 transition-colors group-hover:bg-violet-500/20">
+                  <Smartphone className="size-4" />
+                </span>
+                <p className="mt-3 text-sm font-medium text-foreground">Mobile app template</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A ready-made phone screen with a header, hero card, and buttons
+                  you can restyle.
+                </p>
+              </Card>
+              <Card
+                className="group cursor-pointer border-border/80 bg-card/60 p-4 shadow-none transition-all hover:-translate-y-0.5 hover:border-violet-500/50 hover:bg-accent/60 hover:shadow-md hover:shadow-violet-600/10"
+                onClick={() => {
+                  setTemplate("web");
+                  setNewName("Web dashboard");
+                  setNewDialog("file");
+                }}
+              >
+                <span className="flex size-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-500 transition-colors group-hover:bg-violet-500/20">
+                  <LayoutGrid className="size-4" />
+                </span>
+                <p className="mt-3 text-sm font-medium text-foreground">Web dashboard template</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A desktop frame with sidebar navigation and metric cards.
+                </p>
+              </Card>
+            </div>
           </div>
         )}
       </div>
@@ -749,7 +847,7 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateFile}
               disabled={!newName.trim() || !projectId}
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
             >
               Create
             </Button>
@@ -781,7 +879,7 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateProject}
               disabled={!newName.trim()}
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
             >
               Create
             </Button>
@@ -817,7 +915,7 @@ export default function Dashboard() {
               Cancel
             </Button>
             <Button
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
               onClick={() => {
                 if (!publishFor) return;
                 publishFile({
@@ -863,7 +961,7 @@ export default function Dashboard() {
             <Button
               onClick={handleCreateFolder}
               disabled={!newName.trim()}
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
             >
               Create
             </Button>
@@ -894,7 +992,7 @@ export default function Dashboard() {
             <Button
               onClick={handleRename}
               disabled={!renameValue.trim() || !moveTarget}
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
             >
               Save
             </Button>
@@ -1021,7 +1119,7 @@ export default function Dashboard() {
           <DialogFooter>
             <Button
               disabled={!profileName.trim()}
-              className="bg-violet-600 text-white hover:bg-violet-500"
+              className="bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-sm shadow-violet-600/20 hover:from-violet-500 hover:to-violet-400"
               onClick={async () => {
                 await updateProfile({ name: profileName.trim() });
                 setRenameOpen(false);
@@ -1066,7 +1164,7 @@ function FileCard({
 
   return (
     <Card
-      className="group cursor-pointer border-border bg-card/50 p-3 shadow-none transition-colors hover:border-violet-500/60 hover:bg-accent/60"
+      className="group cursor-pointer border-border/80 bg-card/50 p-3 shadow-none transition-all hover:-translate-y-0.5 hover:border-violet-500/50 hover:bg-accent/60 hover:shadow-lg hover:shadow-violet-600/10"
       onClick={onOpen}
     >
       <div className="overflow-hidden rounded-md border border-border/60 bg-card">

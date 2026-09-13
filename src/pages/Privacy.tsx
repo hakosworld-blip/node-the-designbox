@@ -55,7 +55,14 @@ export default function Privacy() {
         </li>
         <li>
           <strong>Display name</strong> — shown to collaborators and, if you
-          publish a design, in the Explore catalog.
+          publish a design, in the Explore catalog. When you first sign up
+          with an email code, a suggested display name is automatically
+          derived locally from your email address by splitting it into words
+          (for example, "full.bear67@…" produces "Full Bear"). The derived
+          name is stored as part of your account profile and can be changed
+          or removed at any time from the account menu; if you already have a
+          display name, it is never overwritten. Guest (anonymous) sessions
+          receive no derived name.
         </li>
         <li>
           <strong>Profile image (optional)</strong> — shown as your avatar to
