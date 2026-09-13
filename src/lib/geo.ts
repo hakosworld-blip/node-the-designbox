@@ -30,10 +30,16 @@ export interface DesignNode {
   stroke: string | null;
   strokeWidth: number;
   radius: number; // corner radius
+  corners?: { tl: number; tr: number; br: number; bl: number } | null; // per-corner radii
   opacity: number; // 0–1
   text?: string;
   fontSize?: number;
   fontWeight?: number;
+  fontFamily?: string; // css font stack for text nodes
+  lineHeight?: number; // multiplier of fontSize (default 1.35)
+  letterSpacing?: number; // px
+  italic?: boolean;
+  textCase?: "none" | "upper" | "lower";
   align?: "left" | "center" | "right";
   color?: string;
   points?: number; // polygon sides
@@ -58,6 +64,15 @@ export interface DesignNode {
   gradient?: { from: string; to: string; angle: number } | null; // linear fill
   blend?: string; // canvas globalCompositeOperation (multiply, screen, …)
   dash?: number; // dashed stroke length; 0/undefined = solid
+  // Prototype interactions (hotspots): tap/hover/press → destination.
+  interactions?: Array<{
+    trigger: "tap" | "hover" | "press" | "drag" | "after-delay";
+    toPageId?: string;
+    toNodeId?: string;
+    transition: string;
+    easing: string;
+    duration: number;
+  }>;
   // Auto layout (frames only): children are re-flowed inside the frame.
   layout?: FrameLayout | null;
 }

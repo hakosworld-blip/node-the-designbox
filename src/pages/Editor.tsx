@@ -30,6 +30,7 @@ import {
   type Bounds,
   type DesignDoc,
   type DesignNode,
+  type Transform,
 } from "@/lib/geo";
 import {
   DEFAULT_FRAME_PRESETS,
@@ -43,6 +44,21 @@ import { ScanSearch, Sun, Moon, PaintBucket, Check, TriangleAlert } from "lucide
 import { Search, Ruler as RulerIcon, Maximize, FileCode2, Replace as ReplaceIcon } from "lucide-react";
 import { ColorPicker } from "@/components/ColorPicker";
 import { buildButtonNodes } from "@/lib/buttonPreset";
+import { applyCornerChange, cornersAreUniform, readCorners } from "@/lib/corners";
+import { FONTS } from "@/lib/fonts";
+import { COMPONENT_PRESETS } from "@/lib/componentPresets";
+import {
+  EASINGS,
+  TransitionRunner,
+  findInteraction,
+  resolveNavigation,
+  snapshotPage,
+  snapshotToNodes,
+  type AnimSpec,
+  type TransitionFrame,
+  type TransitionId,
+  type TriggerId,
+} from "@/lib/anims";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useTheme, canvasBackground } from "@/lib/theme";
 import { MousePointerClick } from "lucide-react";
@@ -375,6 +391,182 @@ function CollapsedDockRail({
   );
 }
 
+function PrototypeSection({
+  node,
+  onChange,
+}: {
+  node: DesignNode;
+  onChange: (patch: Partial<DesignNode>) => void;
+}) {
+  const ix = node.interactions?.[0];
+  return (
+    <div>
+      <SectionLabel>Prototype</SectionLabel>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        On click, jump to the next page with an animation. Hotspots apply in
+        Present mode.
+      </p>
+      <div className="mt-2 space-y-2">
+        <select
+          value={ix?.transition ?? "none"}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "none") {
+              onChange({ interactions: undefined });
+              return;
+            }
+            const doc = useEditor.getState().doc;
+            const page = activePage(doc);
+            const idx = doc.pages.findIndex((pg) => pg.id === page.id);
+            const nextPage = doc.pages[idx + 1] ?? doc.pages[0];
+            const eased = EASINGS.find((x) => x.id === "ease-out");
+            onChange({
+              interactions: [
+                {
+                  trigger: "tap" as TriggerId,
+                  toPageId: nextPage?.id,
+                  transition: v,
+                  easing: eased?.id ?? "ease-out",
+                  duration: 300,
+                },
+              ],
+            });
+          }}
+          className="h-8 w-full rounded-md border border-border/70 bg-background/60 px-2 text-xs"
+        >
+          <option value="none">No interaction</option>
+          <option value="dissolve">Dissolve</option>
+          <option value="slide-left">Slide left</option>
+          <option value="slide-right">Slide right</option>
+          <option value="slide-up">Slide up</option>
+          <option value="move-in">Move in</option>
+          <option value="move-out">Move out</option>
+          <option value="smart-animate">Smart animate</option>
+          <option value="instant">Instant</option>
+        </select>
+        {ix && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex h-8 items-center gap-1.5 rounded-md border border-border/70 bg-background/60 px-2">
+                <span className="w-6 shrink-0 text-center text-[10px] font-semibold uppercase text-muted-foreground">
+                  Ms
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={2000}
+                  value={ix.duration}
+                  onChange={(e) =>
+                    onChange({
+                      interactions: [
+                        { ...ix, duration: Math.max(0, Math.min(2000, Number(e.target.value) || 0)) },
+                      ],
+                    })
+                  }
+                  className="w-full bg-transparent text-[11px] outline-none"
+                />
+              </label>
+              <select
+                value={ix.easing}
+                onChange={(e) =>
+                  onChange({
+                    interactions: [{ ...ix, easing: e.target.value }],
+                  })
+                }
+                className="h-8 w-full rounded-md border border-border/70 bg-background/60 px-2 text-xs"
+              >
+                {EASINGS.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Destination: next page ({useEditor.getState().doc.pages.length} pages total)
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CornerFields({
+  node,
+  onChange,
+}: {
+  node: DesignNode;
+  onChange: (patch: Partial<DesignNode>) => void;
+}) {
+  const corners = readCorners(node);
+  const uniform = cornersAreUniform(node);
+  const fields: Array<[string, number, keyof typeof corners]> = [
+    ["⇲", corners.bl, "bl"],
+    ["⇳", corners.tl, "tl"],
+    ["⇲", corners.br, "br"],
+    ["⇱", corners.tr, "tr"],
+  ];
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Corners
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {uniform ? "linked" : "independent"}
+        </span>
+      </div>
+      <div className="mt-1 grid grid-cols-4 gap-1">
+        {fields.map(([glyph, val, key], i) => (
+          <CornerField
+            key={i}
+            glyph={glyph}
+            value={val}
+            onChange={(v) =>
+              onChange({ ...applyCornerChange(node, { [key]: v }) })
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CornerField({
+  glyph,
+  value,
+  onChange,
+}: {
+  glyph: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <label className="flex h-7 items-center rounded-md border border-border/70 bg-background/60 px-1.5 focus-within:border-violet-400/50">
+      <span className="text-[10px] text-muted-foreground">{glyph}</span>
+      <input
+        type="number"
+        value={draft ?? String(value)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft !== null) onChange(Number(draft) || 0);
+          setDraft(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            if (draft !== null) onChange(Number(draft) || 0);
+            setDraft(null);
+          }
+        }}
+        className="w-full bg-transparent text-[11px] outline-none"
+        min={0}
+      />
+    </label>
+  );
+}
+
 function NumField({
   label,
   value,
@@ -686,6 +878,7 @@ function CommandPalette({
     exportJson: () => void;
     saveVersion: () => void;
     present: () => void;
+    insertPreset: (presetId: string) => void;
     share: () => void;
     library: () => void;
     lint: () => void;
@@ -897,6 +1090,17 @@ function CommandPalette({
           <CommandItem onSelect={() => run(actions.insertButton)}>
             <MousePointerClick className="size-4" /> Insert: Button component
           </CommandItem>
+          {COMPONENT_PRESETS.map((preset) => (
+            <CommandItem
+              key={preset.id}
+              onSelect={() => run(() => actions.insertPreset(preset.id))}
+            >
+              <MousePointerClick className="size-4" /> Insert: {preset.label}
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {preset.category}
+              </span>
+            </CommandItem>
+          ))}
           <CommandItem onSelect={() => run(actions.findReplace)}>
             <Search className="size-4" /> Find &amp; replace text…
           </CommandItem>
@@ -2339,6 +2543,27 @@ export default function Editor() {
         dirty: true,
       });
     },
+    insertPreset: (presetId: string) => {
+      const preset = COMPONENT_PRESETS.find((x) => x.id === presetId);
+      if (!preset) return;
+      const vp = { zoom, panX, panY };
+      const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+      const cw = el?.clientWidth ?? window.innerWidth / 2;
+      const ch = el?.clientHeight ?? window.innerHeight / 2;
+      const pt = screenToPage(vp, cw / 2, ch / 2);
+      const nodes = preset.build(Math.round(pt.x), Math.round(pt.y));
+      const st = useEditor.getState();
+      const preDoc = st.doc;
+      const basePastLen = st.past.length;
+      for (const n of nodes) st.addNode(n);
+      const after = useEditor.getState();
+      useEditor.setState({
+        past: [...after.past.slice(0, basePastLen), preDoc],
+        future: [],
+        dirty: true,
+      });
+      st.select(nodes.map((n) => n.id));
+    },
     findReplace: () => {
       setFindOpen(true);
       setTimeout(() => findInputRef.current?.focus(), 60);
@@ -3412,10 +3637,18 @@ export default function Editor() {
                         label="⌒"
                         value={selectedNode.radius}
                         onChange={(v) =>
-                          updateSelected({ radius: Math.max(0, v) })
+                          updateSelected({
+                            ...applyCornerChange(selectedNode, { tl: v }, { all: true }),
+                          })
                         }
                       />
                     </div>
+                    {selectedNode.type !== "text" && (
+                      <CornerFields
+                        node={selectedNode}
+                        onChange={(patch) => updateSelected(patch)}
+                      />
+                    )}
                   </div>
 
                   {/* Constraints: how this layer follows its frame when resized */}
@@ -3851,6 +4084,13 @@ export default function Editor() {
                       </div>
                     )}
 
+                  {selectedNode.type === "frame" && (
+                    <PrototypeSection
+                      node={selectedNode}
+                      onChange={(patch) => updateSelected(patch)}
+                    />
+                  )}
+
                   {selectedNode.type === "text" && (
                     <div>
                       <SectionLabel>Typography</SectionLabel>
@@ -3874,6 +4114,77 @@ export default function Editor() {
                               updateSelected({ fontWeight: v })
                             }
                           />
+                        </div>
+                        <select
+                          value={
+                            FONTS.find(
+                              (f) => f.canvasFamilies === (selectedNode.fontFamily ?? ""),
+                            )?.id ?? "sans"
+                          }
+                          onChange={(e) => {
+                            const def = FONTS.find((f) => f.id === e.target.value);
+                            if (def)
+                              updateSelected({ fontFamily: def.canvasFamilies });
+                          }}
+                          className="h-8 w-full rounded-md border border-border/70 bg-background/60 px-2 text-xs"
+                        >
+                          {FONTS.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.label} — {f.category}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="grid grid-cols-2 gap-2">
+                          <NumField
+                            label="LH"
+                            value={selectedNode.lineHeight ?? 1.35}
+                            min={0.8}
+                            step={0.05}
+                            onChange={(v) =>
+                              updateSelected({ lineHeight: Math.max(0.5, Math.min(3, v)) })
+                            }
+                          />
+                          <NumField
+                            label="LS"
+                            value={selectedNode.letterSpacing ?? 0}
+                            step={0.5}
+                            onChange={(v) =>
+                              updateSelected({ letterSpacing: Math.max(-5, Math.min(20, v)) })
+                            }
+                          />
+                        </div>
+                        <div className="flex gap-1">
+                          {([
+                            ["Aa", "none"],
+                            ["AA", "upper"],
+                            ["aa", "lower"],
+                          ] as const).map(([label, mode]) => (
+                            <button
+                              key={mode}
+                              className={cn(
+                                "flex h-8 flex-1 items-center justify-center rounded-md border border-border/70 text-xs transition-colors",
+                                (selectedNode.textCase ?? "none") === mode
+                                  ? "border-violet-400/60 bg-violet-500/10 text-foreground"
+                                  : "text-muted-foreground hover:bg-secondary/60",
+                              )}
+                              onClick={() => updateSelected({ textCase: mode })}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                          <button
+                            className={cn(
+                              "flex h-8 flex-1 items-center justify-center rounded-md border border-border/70 text-xs italic transition-colors",
+                              selectedNode.italic
+                                ? "border-violet-400/60 bg-violet-500/10 text-foreground"
+                                : "text-muted-foreground hover:bg-secondary/60",
+                            )}
+                            onClick={() =>
+                              updateSelected({ italic: !selectedNode.italic })
+                            }
+                          >
+                            I
+                          </button>
                         </div>
                         <div className="flex gap-1">
                           {(["left", "center", "right"] as const).map((a) => (
@@ -4351,23 +4662,129 @@ export default function Editor() {
 /* ---------- Present-mode canvas: refits content, no chrome ---------- */
 function PresentCanvas({ doc }: { doc: DesignDoc }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  const [route, setRoute] = useState<{ pageId: string; anim: AnimSpec } | null>(
+    null,
+  );
+  const [currentId, setCurrentId] = useState(doc.activePageId);
+  const runnerRef = useRef<TransitionRunner | null>(null);
+  const docRef = useRef(doc);
+  docRef.current = doc;
+
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const draw = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let raf = 0;
+    let last = performance.now();
+    let running = true;
+
+    const loop = (now: number) => {
+      if (!running) return;
+      const dt = Math.min(50, now - last);
+      last = now;
+      const canvasEl = ref.current;
+      const c = canvasEl?.getContext("2d");
+      if (!canvasEl || !c) return;
       const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      const t = fitTransform(doc, w, h);
-      renderDoc(ctx, doc, t, w, h, dpr, {});
+      const w = canvasEl.clientWidth;
+      const h = canvasEl.clientHeight;
+      canvasEl.width = w * dpr;
+      canvasEl.height = h * dpr;
+
+      const runner = runnerRef.current;
+      if (runner) {
+        const frame = runner.tick(dt);
+        const cur = docRef.current;
+        const page =
+          cur.pages.find((pg) => pg.id === routeRef.current?.pageId) ??
+          cur.pages[0];
+        const snapshotDoc: DesignDoc = {
+          ...cur,
+          activePageId: page.id,
+          pages: [{ ...page, nodes: frame.nodes as DesignNode[] }],
+        };
+        const t = fitTransform(snapshotDoc, w, h);
+        renderDoc(c, snapshotDoc, t, w, h, dpr, {});
+        if (frame.dx !== 0 || frame.dy !== 0) {
+          c.setTransform(dpr, 0, 0, dpr, 0, 0);
+          c.translate(frame.dx * t.zoom, frame.dy * t.zoom);
+        }
+        if (runner.state === "done") {
+          runnerRef.current = null;
+          setCurrentId(routeRef.current?.pageId ?? currentIdRef.current);
+          setRoute(null);
+        }
+      } else {
+        const d = docRef.current;
+        const page = d.pages.find((pg) => pg.id === currentIdRef.current) ?? d.pages[0];
+        const viewDoc: DesignDoc = { ...d, activePageId: page.id };
+        const t = fitTransform(viewDoc, w, h);
+        renderDoc(c, viewDoc, t, w, h, dpr, {});
+      }
+      raf = requestAnimationFrame(loop);
     };
-    draw();
-    window.addEventListener("resize", draw);
-    return () => window.removeEventListener("resize", draw);
-  }, [doc]);
-  return <canvas ref={ref} className="h-full w-full" />;
+    raf = requestAnimationFrame(loop);
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
+
+  // Kick off a transition when a route is set.
+  useEffect(() => {
+    if (!route) return;
+    const from = snapshotPage(docRef.current, docRef.current.activePageId);
+    const to = snapshotPage(docRef.current, route.pageId);
+    const fromW = Math.max(
+      1,
+      ...Array.from(from.nodes.values()).map((n) => n.x + n.w),
+    );
+    const toW = Math.max(
+      1,
+      ...Array.from(to.nodes.values()).map((n) => n.x + n.w),
+    );
+    runnerRef.current = new TransitionRunner(
+      from,
+      to,
+      route.anim,
+      { fromW, toW },
+    );
+  }, [route]);
+
+  return (
+    <div
+      className="h-full w-full"
+      onClick={(e) => {
+        const canvas = ref.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const d = docRef.current;
+        const cur = d.pages.find((pg) => pg.id === currentIdRef.current) ?? d.pages[0];
+        const t = fitTransform(d, rect.width, rect.height);
+        const pt = screenToPage(t, e.clientX - rect.left, e.clientY - rect.top);
+        // Hit-test top-level nodes front to back.
+        const hit = [...cur.nodes]
+          .reverse()
+          .find(
+            (n) =>
+              pt.x >= n.x &&
+              pt.x <= n.x + n.w &&
+              pt.y >= n.y &&
+              pt.y <= n.y + n.h,
+          );
+        if (!hit) return;
+        const nav = resolveNavigation(doc, hit.id);
+        if (!nav) return;
+        setRoute({ pageId: nav.pageId, anim: nav.anim });
+      }}
+    >
+      <canvas ref={ref} className="h-full w-full" />
+    </div>
+  );
 }

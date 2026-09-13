@@ -86,11 +86,22 @@ function pathNode(ctx: CanvasRenderingContext2D, n: DesignNode) {
     ctx.moveTo(n.x, n.y);
     ctx.lineTo(n.x + n.w, n.y + n.h);
   } else {
-    const r = Math.min(n.radius, Math.abs(b.w) / 2, Math.abs(b.h) / 2);
-    if (r > 0 && typeof ctx.roundRect === "function") {
+    const c = n.corners;
+    if (c && typeof ctx.roundRect === "function") {
+      const r = [
+        Math.max(0, Math.min(c.tl, Math.abs(b.w) / 2, Math.abs(b.h) / 2)),
+        Math.max(0, Math.min(c.tr, Math.abs(b.w) / 2, Math.abs(b.h) / 2)),
+        Math.max(0, Math.min(c.br, Math.abs(b.w) / 2, Math.abs(b.h) / 2)),
+        Math.max(0, Math.min(c.bl, Math.abs(b.w) / 2, Math.abs(b.h) / 2)),
+      ];
       ctx.roundRect(b.x, b.y, b.w, b.h, r);
     } else {
-      ctx.rect(b.x, b.y, b.w, b.h);
+      const r = Math.min(n.radius, Math.abs(b.w) / 2, Math.abs(b.h) / 2);
+      if (r > 0 && typeof ctx.roundRect === "function") {
+        ctx.roundRect(b.x, b.y, b.w, b.h, r);
+      } else {
+        ctx.rect(b.x, b.y, b.w, b.h);
+      }
     }
   }
 }
@@ -188,7 +199,13 @@ function paintNode(
           ? n.x + n.w
           : n.x;
     const lines = (n.text ?? "").split("\n");
-    ctx.font = `${n.fontWeight ?? 500} ${fontSize * t.zoom}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    const lineHeight = n.lineHeight ?? 1.35;
+    const styleItalic = n.italic ? "italic " : "";
+    let drawText = (n.text ?? "");
+    if (n.textCase === "upper") drawText = drawText.toUpperCase();
+    else if (n.textCase === "lower") drawText = drawText.toLowerCase();
+    ctx.font = `${styleItalic}${n.fontWeight ?? 500} ${fontSize * t.zoom}px ${n.fontFamily || 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'}`;
+    ctx.letterSpacing = `${(n.letterSpacing ?? 0) * t.zoom}px`;
     if (outline) {
       // Outlines mode: show a light box for text layers.
       ctx.strokeStyle = "#e4e4e7";
@@ -197,11 +214,12 @@ function paintNode(
       ctx.restore();
       return;
     }
-    lines.forEach((line, i) => {
+    const outLines = drawText.split("\n");
+    outLines.forEach((line, i) => {
       ctx.fillText(
         line,
         tx * t.zoom + t.panX,
-        (n.y + i * fontSize * 1.35) * t.zoom + t.panY,
+        (n.y + i * fontSize * lineHeight) * t.zoom + t.panY,
       );
     });
     ctx.restore();

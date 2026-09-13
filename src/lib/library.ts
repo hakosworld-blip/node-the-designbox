@@ -12,6 +12,7 @@
  */
 
 import { uid, type DesignDoc, type DesignNode, type NodeType } from "./geo";
+import { COMPONENT_PRESETS } from "./componentPresets";
 
 export type LibraryCategory =
   | "Backgrounds"
@@ -975,11 +976,21 @@ const textItems: LibraryItem[] = [
 
 /* ---------- exports ---------- */
 
+// Component presets (componentPresets.ts) exposed as searchable UI items.
+const componentPresetItems: LibraryItem[] = COMPONENT_PRESETS.map((preset) => ({
+  id: "component-" + preset.id,
+  name: preset.label,
+  category: "UI" as const,
+  keywords: [preset.category.toLowerCase(), "component", preset.id],
+  build: () => preset.build(0, 0),
+}));
+
 export const LIBRARY: LibraryItem[] = [
   ...backgrounds,
   ...icons,
   ...shapes,
   ...uiItems(),
+  ...componentPresetItems,
   ...textItems,
 ];
 

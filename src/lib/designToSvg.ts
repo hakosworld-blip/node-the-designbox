@@ -41,6 +41,16 @@ function shapeElement(n: DesignNode): string {
     case "rect":
     case "frame":
     case "image": {
+      const c = n.corners;
+      if (c && (c.tl !== c.tr || c.tr !== c.br || c.br !== c.bl)) {
+        const rc = (v: number) => Math.max(0, Math.min(v, Math.abs(n.w) / 2, Math.abs(n.h) / 2));
+        const X = n.x;
+        const Y = n.y;
+        const W = Math.max(n.w, 0);
+        const H = Math.max(n.h, 0);
+        const p = `M ${X + rc(c.tl)} ${Y} L ${X + W - rc(c.tr)} ${Y} Q ${X + W} ${Y} ${X + W} ${Y + rc(c.tr)} L ${X + W} ${Y + H - rc(c.br)} Q ${X + W} ${Y + H} ${X + W - rc(c.br)} ${Y + H} L ${X + rc(c.bl)} ${Y + H} Q ${X} ${Y + H} ${X} ${Y + H - rc(c.bl)} L ${X} ${Y + rc(c.tl)} Q ${X} ${Y} ${X + rc(c.tl)} ${Y} Z`;
+        return `<path d="${p}" fill="${fillOf(n)}"${strokeAttrs(n)}${rot}/>`;
+      }
       return `<rect x="${n.x}" y="${n.y}" width="${Math.max(n.w, 0)}" height="${Math.max(n.h, 0)}" rx="${n.radius || 0}" fill="${fillOf(n)}"${strokeAttrs(n)}${rot}/>`;
     }
     case "ellipse": {
@@ -73,7 +83,10 @@ function shapeElement(n: DesignNode): string {
         n.align === "center" ? "middle" : n.align === "right" ? "end" : "start";
       const tx =
         n.align === "center" ? cx : n.align === "right" ? n.x + n.w : n.x;
-      return `<text x="${tx}" y="${n.y + size * 0.9}" font-family="Inter, system-ui, sans-serif" font-size="${size}" font-weight="${weight}" fill="${n.color ?? "#000"}" text-anchor="${anchor}"${rot}>${esc(n.text ?? "")}</text>`;
+      const ls = n.letterSpacing ? ` letter-spacing="${n.letterSpacing}"` : "";
+      const txt = n.textCase === "upper" ? (n.text ?? "").toUpperCase() : n.textCase === "lower" ? (n.text ?? "").toLowerCase() : n.text ?? "";
+      const lh = n.lineHeight ?? 1.35;
+      return `<text x="${tx}" y="${n.y + size * 0.9}" font-family="${esc(n.fontFamily || 'Inter, system-ui, sans-serif')}" font-size="${size}" font-weight="${weight}"${n.italic ? ' font-style="italic"' : ""} fill="${n.color ?? "#000"}" text-anchor="${anchor}"${ls}${rot}>${esc(txt)}</text>`;
     }
     default:
       return "";
