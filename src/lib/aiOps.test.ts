@@ -177,4 +177,26 @@ describe("applyPlan", () => {
     expect(result.created).toBe(0);
     expect(useEditor.getState().past.length).toBe(pastLen);
   });
+
+  it("caps the number of ops in a plan", () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      op: "create",
+      type: "rect",
+      name: `r${i}`,
+    }));
+    const plan = parsePlan({ ops: many, say: "bulk" })!;
+    expect(plan.ops.length).toBeLessThanOrEqual(20);
+  });
+
+  it("caps long strings in ops (injection surface bound)", () => {
+    const plan = parsePlan({
+      ops: [{ op: "update", id: "x".repeat(300), name: "n".repeat(300), text: "t".repeat(1000) }],
+      say: "",
+    })!;
+    expect(plan.ops.length).toBe(1);
+    const op = plan.ops[0];
+    expect(op.id?.length).toBe(64);
+    expect(op.name?.length).toBe(120);
+    expect(op.text?.length).toBe(400);
+  });
 });
