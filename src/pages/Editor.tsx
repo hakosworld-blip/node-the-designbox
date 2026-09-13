@@ -4,6 +4,18 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
+import { docToSvg, nodeToSvg, downloadSvg } from "@/lib/designToSvg";
+import {
+  findMatches,
+  replaceAll as replaceAllNodes,
+  gotoMatch,
+  type FindMatch,
+} from "@/lib/findReplace";
+import {
+  measureNodes,
+  measureSummary,
+  type MeasureResult,
+} from "@/lib/measure";
 import { useEditor, type Tool } from "@/lib/store";
 import {
   activePage,
@@ -28,6 +40,7 @@ import { exportCss, exportNodePng, exportPng, downloadJson } from "@/lib/export"
 import { docToJsx } from "@/lib/designToJsx";
 import { analyzeTokens, formatTokensReport } from "@/lib/designTokens";
 import { ScanSearch, Sun, Moon, PaintBucket, Check, TriangleAlert } from "lucide-react";
+import { Search, Ruler as RulerIcon, Maximize, FileCode2, Replace as ReplaceIcon } from "lucide-react";
 import { ColorPicker } from "@/components/ColorPicker";
 import { buildButtonNodes } from "@/lib/buttonPreset";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -677,6 +690,14 @@ function CommandPalette({
     library: () => void;
     lint: () => void;
     insertButton: () => void;
+    findReplace: () => void;
+    measure: () => void;
+    zoomToSelection: () => void;
+    fitAll: () => void;
+    lockSelection: () => void;
+    unlockAll: () => void;
+    exportSvg: () => void;
+    exportNodeSvg: () => void;
   };
 }) {
   const selectedIds = useEditor((s) => s.selectedIds);
@@ -876,6 +897,27 @@ function CommandPalette({
           <CommandItem onSelect={() => run(actions.insertButton)}>
             <MousePointerClick className="size-4" /> Insert: Button component
           </CommandItem>
+          <CommandItem onSelect={() => run(actions.findReplace)}>
+            <Search className="size-4" /> Find &amp; replace text…
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.measure)}>
+            <RulerIcon className="size-4" /> Measure mode (Alt+M)
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.zoomToSelection)}>
+            <Maximize className="size-4" /> Zoom to selection (Shift+1)
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.fitAll)}>
+            <Maximize className="size-4" /> Fit all content (Shift+0)
+          </CommandItem>
+          <CommandItem
+            onSelect={() => run(actions.lockSelection)}
+            disabled={s().selectedIds.length === 0}
+          >
+            <Lock className="size-4" /> Lock selection (Shift+Cmd+L)
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.unlockAll)}>
+            <Lock className="size-4" /> Unlock all layers
+          </CommandItem>
           <CommandItem onSelect={() => run(actions.share)}>
             <Share2 className="size-4" /> Share…
           </CommandItem>
@@ -884,6 +926,15 @@ function CommandPalette({
           </CommandItem>
           <CommandItem onSelect={() => run(actions.exportCss)}>
             <Download className="size-4" /> Export CSS
+          </CommandItem>
+          <CommandItem onSelect={() => run(actions.exportSvg)}>
+            <FileCode2 className="size-4" /> Export SVG — current page
+          </CommandItem>
+          <CommandItem
+            onSelect={() => run(actions.exportNodeSvg)}
+            disabled={s().selectedIds.length !== 1}
+          >
+            <FileCode2 className="size-4" /> Export SVG — selection
           </CommandItem>
           <CommandItem onSelect={() => run(actions.exportJson)}>
             <Download className="size-4" /> Export Node JSON
@@ -1078,6 +1129,13 @@ export default function Editor() {
   );
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [outlineMode, setOutlineMode] = useState(false);
+  // ----- Major update: measure mode + find & replace -----
+  const [measureMode, setMeasureMode] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findReplacement, setFindReplacement] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
   const [marquee, setMarquee] = useState<Bounds | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [renamingPage, setRenamingPage] = useState<string | null>(null);
@@ -2087,6 +2145,62 @@ export default function Editor() {
       if (toolMap[key]) state.setTool(toolMap[key]);
       if (key === "0") state.setViewport(1, state.panX, state.panY);
       // Group / ungroup (⌘G / ⇧⌘G)
+      // Major update shortcuts
+      if (e.shiftKey && key === "1") {
+        e.preventDefault();
+        const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+        const nodes = activePage(state.doc).nodes.filter((n) =>
+          state.selectedIds.includes(n.id),
+        );
+        const b = unionBounds(nodes);
+        if (el && b) {
+          const pad = 80;
+          const z = Math.min(
+            8,
+            Math.max(
+              0.05,
+              Math.min(
+                (el.clientWidth - pad * 2) / Math.max(b.w, 1),
+                (el.clientHeight - pad * 2) / Math.max(b.h, 1),
+              ),
+            ),
+          );
+          state.setViewport(
+            z,
+            el.clientWidth / 2 - (b.x + b.w / 2) * z,
+            el.clientHeight / 2 - (b.y + b.h / 2) * z,
+          );
+        }
+        return;
+      }
+      if (e.shiftKey && key === "0") {
+        e.preventDefault();
+        const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+        if (el) {
+          const t = fitTransform(state.doc, el.clientWidth, el.clientHeight);
+          state.setViewport(t.zoom, t.panX, t.panY);
+        }
+        return;
+      }
+      if (e.altKey && key === "m") {
+        e.preventDefault();
+        setMeasureMode((v) => !v);
+        return;
+      }
+      if (e.shiftKey && mod && key === "l") {
+        e.preventDefault();
+        if (state.selectedIds.length > 0) {
+          state.pushHistory();
+          state.updateNodesLive(state.selectedIds, { locked: true });
+        }
+        return;
+      }
+      if (mod && key === "f") {
+        e.preventDefault();
+        setFindOpen(true);
+        setTimeout(() => findInputRef.current?.focus(), 60);
+        return;
+      }
       if (mod && key === "g") {
         e.preventDefault();
         if (e.shiftKey) state.ungroupNodes(state.selectedIds);
@@ -2110,6 +2224,25 @@ export default function Editor() {
 
   /* ----- Derived ----- */
   const pageData = activePage(doc);
+  // ----- Find & Replace matches (live) -----
+  const findMatchesList: FindMatch[] = findOpen
+    ? findMatches(doc, findQuery)
+    : [];
+  const currentMatch: FindMatch | null =
+    findMatchesList.length > 0
+      ? findMatchesList[findIndex % findMatchesList.length]
+      : null;
+
+  // ----- Measure mode: gap between the two topmost selected nodes -----
+  const measureResult: MeasureResult | null = useMemo(() => {
+    if (!measureMode) return null;
+    const nodes = pageData.nodes;
+    const sel = selectedIds
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter((n): n is DesignNode => !!n);
+    if (sel.length !== 2) return null;
+    return measureNodes(sel[0], sel[1]);
+  }, [measureMode, pageData, selectedIds]);
   const selectedNode = useMemo(
     () =>
       selectedIds.length === 1
@@ -2205,6 +2338,71 @@ export default function Editor() {
         future: [],
         dirty: true,
       });
+    },
+    findReplace: () => {
+      setFindOpen(true);
+      setTimeout(() => findInputRef.current?.focus(), 60);
+    },
+    measure: () => setMeasureMode((v) => !v),
+    zoomToSelection: () => {
+      const st = useEditor.getState();
+      const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+      if (!el) return;
+      const nodes = activePage(st.doc).nodes.filter((n) =>
+        st.selectedIds.includes(n.id),
+      );
+      const b = unionBounds(nodes);
+      if (!b) return;
+      const pad = 80;
+      const zoom2 = Math.min(
+        8,
+        Math.max(
+          0.05,
+          Math.min(
+            (el.clientWidth - pad * 2) / Math.max(b.w, 1),
+            (el.clientHeight - pad * 2) / Math.max(b.h, 1),
+          ),
+        ),
+      );
+      st.setViewport(
+        zoom2,
+        el.clientWidth / 2 - (b.x + b.w / 2) * zoom2,
+        el.clientHeight / 2 - (b.y + b.h / 2) * zoom2,
+      );
+    },
+    fitAll: () => {
+      const st = useEditor.getState();
+      const el = document.querySelector<HTMLElement>("[data-canvas-center]");
+      if (!el) return;
+      const t = fitTransform(st.doc, el.clientWidth, el.clientHeight);
+      st.setViewport(t.zoom, t.panX, t.panY);
+    },
+    lockSelection: () => {
+      const st = useEditor.getState();
+      if (st.selectedIds.length === 0) return;
+      st.pushHistory();
+      st.updateNodesLive(st.selectedIds, { locked: true });
+    },
+    unlockAll: () => {
+      const st = useEditor.getState();
+      const locked = activePage(st.doc).nodes.filter((n) => n.locked);
+      if (locked.length === 0) return;
+      st.pushHistory();
+      st.updateNodesLive(
+        locked.map((n) => n.id),
+        { locked: false },
+      );
+    },
+    exportSvg: () => {
+      const st = useEditor.getState();
+      downloadSvg(docToSvg(st.doc), fileRow?.name ?? "design");
+    },
+    exportNodeSvg: () => {
+      const st = useEditor.getState();
+      const node = activePage(st.doc).nodes.find(
+        (n) => n.id === st.selectedIds[0],
+      );
+      if (node) downloadSvg(nodeToSvg(node), node.name || node.type);
     },
   };
 
@@ -2879,6 +3077,27 @@ export default function Editor() {
               <Sparkles className="size-5" />
               <span className="[writing-mode:vertical-rl] text-[10px] font-medium uppercase tracking-widest">Vector</span>
             </button>
+            {/* Measure-mode HUD (Alt+M): gap between two selected nodes */}
+            {measureMode && (
+              <div className="absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 py-1.5 font-mono text-xs shadow-lg backdrop-blur">
+                {measureResult ? (
+                  <span className="text-foreground">
+                    {measureSummary(measureResult)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Measure: select exactly 2 nodes
+                  </span>
+                )}
+                <button
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => setMeasureMode(false)}
+                  title="Exit measure mode (Alt+M)"
+                >
+                  &times;
+                </button>
+              </div>
+            )}
             <canvas
               ref={canvasRef}
               className="absolute inset-0 h-full w-full touch-none select-none"
@@ -3882,6 +4101,85 @@ export default function Editor() {
         </DialogContent>
       </Dialog>
 
+      {/* Find & Replace (Cmd+F) */}
+      <Dialog open={findOpen} onOpenChange={setFindOpen}>
+        <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="size-4 text-violet-500" /> Find &amp; replace
+            </DialogTitle>
+            <DialogDescription>
+              Searches layer names and text content on the current page.
+              Replacements land as a single undoable step.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={findInputRef}
+                value={findQuery}
+                onChange={(e) => {
+                  setFindQuery(e.target.value);
+                  setFindIndex(0);
+                }}
+                placeholder="Search layers and text..."
+                className="h-9 pl-8 text-sm"
+              />
+            </div>
+            {findQuery.trim() !== "" && (
+              <p className="text-xs text-muted-foreground">
+                {findMatchesList.length > 0
+                  ? `${findMatchesList.length} match${findMatchesList.length === 1 ? "" : "es"}`
+                  : "No matches"}
+                {findMatchesList.length > 0 && (
+                  <button
+                    className="ml-2 underline hover:text-foreground"
+                    onClick={() =>
+                      gotoMatch(
+                        findMatchesList[findIndex % findMatchesList.length]
+                          .nodeId,
+                      )
+                    }
+                  >
+                    Jump to match
+                  </button>
+                )}
+                {findMatchesList.length > 1 && (
+                  <button
+                    className="ml-2 underline hover:text-foreground"
+                    onClick={() => setFindIndex((i) => (i + 1) % findMatchesList.length)}
+                  >
+                    Next
+                  </button>
+                )}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Input
+                value={findReplacement}
+                onChange={(e) => setFindReplacement(e.target.value)}
+                placeholder="Replace with..."
+                className="h-9 flex-1 text-sm"
+              />
+              <Button
+                size="sm"
+                className="h-9 shrink-0 bg-violet-600 hover:bg-violet-500"
+                disabled={findQuery.trim() === "" || findMatchesList.length === 0}
+                onClick={() => {
+                  replaceAllNodes(findQuery, findReplacement);
+                  setFindQuery("");
+                  setFindReplacement("");
+                  setFindIndex(0);
+                }}
+              >
+                <ReplaceIcon className="mr-1.5 size-3.5" /> Replace all
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Export dialog */}
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-sm">
@@ -3919,6 +4217,31 @@ export default function Editor() {
               }}
             >
               <Frame className="mr-2 size-4" /> Node document (.json)
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                downloadSvg(docToSvg(doc), fileRow?.name ?? "design");
+                setExportOpen(false);
+              }}
+            >
+              <FileCode2 className="mr-2 size-4" /> SVG — current page
+            </Button>
+            <Button
+              variant="outline"
+              disabled={selectedIds.length !== 1}
+              onClick={() => {
+                const node = pageData.nodes.find(
+                  (n) => n.id === selectedIds[0],
+                );
+                if (node) {
+                  downloadSvg(nodeToSvg(node), node.name || node.type);
+                  setExportOpen(false);
+                }
+              }}
+            >
+              <FileCode2 className="mr-2 size-4" /> SVG — selection
+              {selectedIds.length !== 1 ? " (select 1)" : ""}
             </Button>
             <Button
               variant="outline"
